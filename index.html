@@ -1,0 +1,1975 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ApexGlobal - Foreign Transaction</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'] },
+          colors: {
+            brand: { 50:'#fefbeb',100:'#fef3c7',200:'#fde58a',300:'#fcd34d',400:'#fbbf24',500:'#f59e0b',600:'#d97706',700:'#b45309',800:'#92400e',900:'#78350f' },
+            darkbg: '#0B0F19', darkcard: '#151B2C', darkborder: '#222B45'
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; transition: background-color 0.3s ease, color 0.3s ease; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .dark ::-webkit-scrollbar-thumb { background: #475569; }
+    .balance-blur { filter: blur(5px); cursor: pointer; transition: filter 0.2s ease; }
+    .balance-blur:hover { filter: blur(3px); }
+    input:focus, select:focus, textarea:focus { color: #f59e0b; caret-color: #f59e0b; }
+    .dark input:focus, .dark select:focus, .dark textarea:focus { color: #fbbf24; caret-color: #fbbf24; }
+
+    /* LOADER */
+    #app-loader {
+      position: fixed; inset: 0;
+      background: radial-gradient(circle at center, #0f172a 0%, #0B0F19 100%);
+      z-index: 9999; display: flex; align-items: center; justify-content: center; flex-direction: column;
+      transition: opacity 0.5s ease, visibility 0.5s ease;
+    }
+    #app-loader.hidden-loader { opacity: 0; visibility: hidden; pointer-events: none; }
+    .loader-wrapper { position: relative; width: 140px; height: 140px; display: flex; align-items: center; justify-content: center; }
+    .loader-ring { position: absolute; inset: 0; border-radius: 50%; border: 4px solid transparent; border-top-color: #f59e0b; border-right-color: #f59e0b; animation: spinRing 1s linear infinite; }
+    .loader-ring-2 { position: absolute; inset: 12px; border-radius: 50%; border: 3px solid transparent; border-bottom-color: #10b981; border-left-color: #10b981; animation: spinRing 1.6s linear infinite reverse; }
+    .loader-ring-3 { position: absolute; inset: 24px; border-radius: 50%; border: 2px solid transparent; border-top-color: #6366f1; border-left-color: #6366f1; animation: spinRing 2.2s linear infinite; }
+    .loader-logo { position: relative; z-index: 2; width: 52px; height: 52px; background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 26px; color: #0B0F19; box-shadow: 0 0 30px rgba(245, 158, 11, 0.5); animation: logoPulse 1.6s ease-in-out infinite; }
+    @keyframes spinRing { to { transform: rotate(360deg); } }
+    @keyframes logoPulse { 0%, 100% { transform: scale(1); box-shadow: 0 0 30px rgba(245, 158, 11, 0.5); } 50% { transform: scale(1.08); box-shadow: 0 0 45px rgba(245, 158, 11, 0.8); } }
+    .loader-text { margin-top: 28px; color: #94a3b8; font-size: 13px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; animation: fadeText 1.6s ease-in-out infinite; }
+    @keyframes fadeText { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+    .loader-dots { margin-top: 10px; display: flex; gap: 6px; }
+    .loader-dot { width: 6px; height: 6px; border-radius: 50%; background: #f59e0b; animation: dotBounce 1.4s ease-in-out infinite; }
+    .loader-dot:nth-child(2) { animation-delay: 0.2s; background: #10b981; }
+    .loader-dot:nth-child(3) { animation-delay: 0.4s; background: #6366f1; }
+    @keyframes dotBounce { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; } 40% { transform: scale(1.2); opacity: 1; } }
+
+    /* Price flash */
+    .price-up { animation: priceUp 0.6s ease; }
+    .price-down { animation: priceDown 0.6s ease; }
+    @keyframes priceUp { 0% { color: #10b981; } 100% { color: inherit; } }
+    @keyframes priceDown { 0% { color: #ef4444; } 100% { color: inherit; } }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 dark:bg-darkbg dark:text-slate-100 min-h-screen flex flex-col antialiased">
+
+  <div id="app-loader">
+    <div class="loader-wrapper">
+      <div class="loader-ring"></div>
+      <div class="loader-ring-2"></div>
+      <div class="loader-ring-3"></div>
+      <div class="loader-logo">A</div>
+    </div>
+    <div class="loader-text">ApexGlobal</div>
+    <div class="loader-dots">
+      <div class="loader-dot"></div>
+      <div class="loader-dot"></div>
+      <div class="loader-dot"></div>
+    </div>
+  </div>
+
+  <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- Custom Confirmation Modal -->
+  <div id="custom-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-2xl max-w-md w-full p-6 shadow-2xl scale-95 transition-transform duration-200" id="modal-content">
+      <h3 id="modal-title" class="text-xl font-bold mb-2">Modal Title</h3>
+      <p id="modal-text" class="text-slate-500 dark:text-slate-400 mb-6">Modal descriptive message.</p>
+      <div class="flex justify-end gap-3">
+        <button id="modal-cancel-btn" class="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl font-semibold text-sm">Cancel</button>
+        <button id="modal-confirm-btn" class="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-slate-950 rounded-xl font-bold text-sm">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PIN Modal -->
+  <div id="pin-modal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-2xl max-w-md w-full p-6 shadow-2xl">
+      <div class="text-center mb-4">
+        <div class="w-12 h-12 bg-brand-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
+          <i data-lucide="shield" class="w-6 h-6 text-brand-500"></i>
+        </div>
+        <h3 class="text-xl font-bold">Transaction PIN Required</h3>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Enter your secure PIN</p>
+      </div>
+      <div class="mb-4">
+        <input type="password" id="pin-input" maxlength="6" placeholder="••••••" class="w-full text-center text-2xl tracking-widest bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-mono">
+      </div>
+      <div class="flex gap-3">
+        <button id="pin-cancel-btn" class="flex-1 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl font-semibold text-sm">Cancel</button>
+        <button id="pin-confirm-btn" class="flex-1 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-slate-950 rounded-xl font-bold text-sm">Verify PIN</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="txn-details-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-xl font-bold">Transaction Details</h3>
+        <button onclick="closeTxnDetailsModal()" class="text-slate-400 hover:text-slate-600">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div id="txn-details-content" class="space-y-3 text-sm"></div>
+    </div>
+  </div>
+
+  <!-- Investor Choice Modal -->
+  <div id="investor-choice-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-2xl max-w-md w-full p-6 shadow-2xl">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-xl font-bold">Investor Hub</h3>
+        <button onclick="closeInvestorChoice()" class="text-slate-400 hover:text-slate-600">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <button onclick="closeInvestorChoice(); navigateTo('add-investor')" class="p-5 bg-slate-50 dark:bg-slate-800 hover:bg-brand-500/10 rounded-2xl text-center transition-colors">
+          <div class="w-12 h-12 rounded-xl bg-brand-500/10 text-brand-500 flex items-center justify-center mx-auto mb-2">
+            <i data-lucide="user-plus" class="w-6 h-6"></i>
+          </div>
+          <span class="block text-sm font-bold">Add Investor</span>
+          <span class="block text-[10px] text-slate-400 mt-1">Setup wallets & generate link</span>
+        </button>
+        <button onclick="closeInvestorChoice(); navigateTo('view-investors')" class="p-5 bg-slate-50 dark:bg-slate-800 hover:bg-indigo-500/10 rounded-2xl text-center transition-colors">
+          <div class="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center mx-auto mb-2">
+            <i data-lucide="users" class="w-6 h-6"></i>
+          </div>
+          <span class="block text-sm font-bold">View Investors</span>
+          <span class="block text-[10px] text-slate-400 mt-1">Approve / Manage</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generated Link Result Modal -->
+  <div id="link-result-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+      <div class="text-center mb-4">
+        <div class="w-12 h-12 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
+          <i data-lucide="link" class="w-6 h-6 text-emerald-500"></i>
+        </div>
+        <h3 class="text-xl font-bold">Invite Link Generated</h3>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Share this link with your investor</p>
+      </div>
+      <div id="link-result-content" class="space-y-3"></div>
+      <div class="flex gap-2 mt-5">
+        <button onclick="copyGeneratedLink()" class="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5">
+          <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy Link
+        </button>
+        <button onclick="document.getElementById('link-result-modal').classList.add('hidden')" class="flex-1 py-2.5 bg-brand-500 hover:bg-brand-600 text-slate-950 rounded-xl text-xs font-black">
+          Done
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN SPA WRAPPER -->
+  <div id="app-root" class="flex-grow flex flex-col"></div>
+
+  <script>
+    // ============ DATABASES ============
+    const MAIN_DB = 'APEXGLOBAL_MOCK_DB';
+    const INV_DB = 'APEXINVEST_STANDALONE_DB';
+
+    // ============ FIXED USD PRICES ============
+    const COIN_PRICES = { BTC: 65000, ETH: 3200, SOL: 150, USDT: 1.00 };
+
+    // ============ MARKETPLACE ASSETS (with base prices) ============
+    const MARKET_ASSETS = [
+      // Stocks
+      { symbol: 'AAPL', name: 'Apple Inc.', type: 'stock', basePrice: 195.50, icon: '🍎' },
+      { symbol: 'TSLA', name: 'Tesla Inc.', type: 'stock', basePrice: 245.30, icon: '⚡' },
+      { symbol: 'GOOGL', name: 'Alphabet Inc.', type: 'stock', basePrice: 142.80, icon: '🔍' },
+      { symbol: 'MSFT', name: 'Microsoft', type: 'stock', basePrice: 405.20, icon: '💻' },
+      { symbol: 'AMZN', name: 'Amazon', type: 'stock', basePrice: 178.90, icon: '📦' },
+      { symbol: 'NVDA', name: 'NVIDIA', type: 'stock', basePrice: 118.40, icon: '🎮' },
+      // Crypto
+      { symbol: 'BTC', name: 'Bitcoin', type: 'crypto', basePrice: 65000, icon: '₿' },
+      { symbol: 'ETH', name: 'Ethereum', type: 'crypto', basePrice: 3200, icon: 'Ξ' },
+      { symbol: 'SOL', name: 'Solana', type: 'crypto', basePrice: 150, icon: '◎' },
+      { symbol: 'USDT', name: 'Tether', type: 'crypto', basePrice: 1.00, icon: '💵' },
+      { symbol: 'BNB', name: 'BNB', type: 'crypto', basePrice: 580, icon: '🔶' },
+      { symbol: 'XRP', name: 'Ripple', type: 'crypto', basePrice: 0.62, icon: '💧' }
+    ];
+
+    // ============ MAIN DB HELPERS ============
+    const initialSeedData = {
+      users: [{
+        id: 'user_01', fullName: 'Alexander Wright', username: 'alexwright',
+        email: 'name@apexglobal.com', phone: '+1 555-019-2831', country: 'United States',
+        currency: 'USD', passwordHash: '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918',
+        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+        twoFactorEnabled: false, transactionPin: '1234', isInvestor: false
+      }],
+      wallets: [
+        { id: 'w_1', userId: 'user_01', currency: 'USD', balance: 45280.50, pending: 1200.00, primary: true },
+        { id: 'w_2', userId: 'user_01', currency: 'EUR', balance: 12450.00, pending: 0.00, primary: false },
+        { id: 'w_3', userId: 'user_01', currency: 'GBP', balance: 8300.00, pending: 350.00, primary: false },
+        { id: 'w_4', userId: 'user_01', currency: 'JPY', balance: 1450000.00, pending: 0.00, primary: false }
+      ],
+      transactions: [],
+      notifications: [
+        { id: 'n_1', userId: 'user_01', title: 'Security Alert', message: 'Logged in from temporary workspace on Chrome.', read: false, date: '2026-05-21T18:00:00.000Z' }
+      ],
+      virtualCards: [
+        { id: 'vc_1', userId: 'user_01', cardholder: 'ALEXANDER WRIGHT', number: '4532 9812 4301 9924', expiry: '09/31', cvv: '413', type: 'VISA', status: 'Active', balance: 5000.00, isFrozen: false }
+      ],
+      investorProfiles: [],
+      investorDeposits: []
+    };
+
+    function getDB() {
+      const data = localStorage.getItem(MAIN_DB);
+      if (!data) {
+        localStorage.setItem(MAIN_DB, JSON.stringify(initialSeedData));
+        return JSON.parse(JSON.stringify(initialSeedData));
+      }
+      const parsed = JSON.parse(data);
+      if (!parsed.investorProfiles) parsed.investorProfiles = [];
+      if (!parsed.investorDeposits) parsed.investorDeposits = [];
+      return parsed;
+    }
+    function saveDB(db) { localStorage.setItem(MAIN_DB, JSON.stringify(db)); }
+
+    // ============ STANDALONE INVESTOR DB ============
+    function getInvDB() {
+      const data = localStorage.getItem(INV_DB);
+      if (!data) {
+        const seed = { accounts: [], balances: {}, holdings: {}, deposits: [], notifications: [] };
+        localStorage.setItem(INV_DB, JSON.stringify(seed));
+        return seed;
+      }
+      return JSON.parse(data);
+    }
+    function saveInvDB(db) { localStorage.setItem(INV_DB, JSON.stringify(db)); }
+
+    // ============ HASH HELPERS ============
+    async function sha256(message) {
+      const msgBuffer = new TextEncoder().encode(message);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    function encodeInvite(data) {
+      try { return btoa(unescape(encodeURIComponent(JSON.stringify(data)))); }
+      catch(e) { return btoa(JSON.stringify(data)); }
+    }
+    function decodeInvite(str) {
+      try { return JSON.parse(decodeURIComponent(escape(atob(str)))); }
+      catch(e) { try { return JSON.parse(atob(str)); } catch(e2) { return null; } }
+    }
+
+    // ============ STATE ============
+    let state = {
+      currentUser: null,
+      activePage: 'login',
+      notificationsOpen: false,
+      activeReceiptTxn: null,
+      transferFilters: { search: '', type: 'all', status: 'all', sort: 'desc' },
+      balancesHidden: false,
+      pendingInvestorLink: null,
+      activeInvestorRecord: null,
+      generatedLink: null,
+      // Investor-side standalone state
+      investorAccount: null,
+      investorDashboardTab: 'overview',
+      priceData: {}, // { symbol: { price, changePct, prevPrice } }
+      priceTickerId: null,
+      viewingInvestorId: null // owner looking at an investor's holdings
+    };
+
+    // Seed price data
+    MARKET_ASSETS.forEach(a => {
+      state.priceData[a.symbol] = { price: a.basePrice, changePct: 0, prevPrice: a.basePrice };
+    });
+
+    // Restore sessions
+    const sessionUser = sessionStorage.getItem('APEX_LOGGED_USER');
+    if (sessionUser) {
+      state.currentUser = JSON.parse(sessionUser);
+      state.activePage = 'dashboard';
+    }
+    const invSession = sessionStorage.getItem('APEXINVEST_SESSION');
+    if (invSession) {
+      state.investorAccount = JSON.parse(invSession);
+      state.activePage = 'investor-dashboard';
+    }
+
+    // Parse invite from URL
+    function parseInviteFromUrl() {
+      let linkId = null;
+      const hashMatch = window.location.hash.match(/invite=([^&]+)/);
+      const queryMatch = window.location.search.match(/invite=([^&]+)/);
+      if (hashMatch) linkId = decodeURIComponent(hashMatch[1]);
+      else if (queryMatch) linkId = decodeURIComponent(queryMatch[1]);
+      return linkId;
+    }
+
+    function applyInviteLink(encoded) {
+      if (!encoded) return false;
+      const data = decodeInvite(encoded);
+      if (!data || !data.ownerId) return false;
+      state.pendingInvestorLink = data;
+      if (!state.investorAccount) {
+        state.activePage = 'investor-signup';
+      }
+      return true;
+    }
+
+    const initialInviteId = parseInviteFromUrl();
+    if (initialInviteId) applyInviteLink(initialInviteId);
+
+    // ============ TOAST / MODAL ============
+    function showToast(title, message, type = 'success') {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+      const toast = document.createElement('div');
+      toast.className = `p-4 mb-3 rounded-xl border flex items-start gap-3 shadow-lg pointer-events-auto transform translate-y-2 opacity-0 transition-all duration-300 w-80 max-w-full ${
+        type === 'success'
+          ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/30 dark:border-emerald-800 dark:text-emerald-200'
+          : type === 'error'
+            ? 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-950/30 dark:border-rose-800 dark:text-rose-200'
+            : 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-200'
+      }`;
+      const icon = type === 'success' ? 'check-circle' : type === 'error' ? 'alert-triangle' : 'info';
+      toast.innerHTML = `
+        <i data-lucide="${icon}" class="w-5 h-5 flex-shrink-0 mt-0.5"></i>
+        <div class="flex-1">
+          <p class="font-bold text-sm leading-tight">${title}</p>
+          <p class="text-xs mt-0.5 opacity-90">${message}</p>
+        </div>
+        <button onclick="this.parentElement.remove()" class="text-slate-400 hover:text-slate-600">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      `;
+      container.appendChild(toast);
+      lucide.createIcons();
+      setTimeout(() => toast.classList.remove('translate-y-2', 'opacity-0'), 50);
+      setTimeout(() => {
+        toast.classList.add('translate-y-2', 'opacity-0');
+        setTimeout(() => toast.remove(), 300);
+      }, 5000);
+    }
+
+    function triggerModal(title, text, onConfirm) {
+      const modal = document.getElementById('custom-modal');
+      const modalContent = document.getElementById('modal-content');
+      document.getElementById('modal-title').textContent = title;
+      document.getElementById('modal-text').textContent = text;
+      modal.classList.remove('hidden');
+      setTimeout(() => modalContent.classList.remove('scale-95'), 10);
+      const closeFn = () => {
+        modalContent.classList.add('scale-95');
+        setTimeout(() => modal.classList.add('hidden'), 100);
+      };
+      document.getElementById('modal-cancel-btn').onclick = closeFn;
+      document.getElementById('modal-confirm-btn').onclick = () => { onConfirm(); closeFn(); };
+    }
+
+    function triggerPinVerification(onSuccess) {
+      const pinModal = document.getElementById('pin-modal');
+      const pinInput = document.getElementById('pin-input');
+      pinInput.value = '';
+      pinModal.classList.remove('hidden');
+      const closePinModal = () => { pinModal.classList.add('hidden'); pinInput.value = ''; };
+      const verifyPin = () => {
+        const db = getDB();
+        const user = db.users.find(u => u.id === state.currentUser.id);
+        if (user.transactionPin === pinInput.value) {
+          closePinModal();
+          if (onSuccess) onSuccess();
+        } else {
+          showToast('Invalid PIN', 'Incorrect PIN.', 'error');
+          pinInput.value = '';
+          pinInput.focus();
+        }
+      };
+      document.getElementById('pin-confirm-btn').onclick = verifyPin;
+      document.getElementById('pin-cancel-btn').onclick = closePinModal;
+      pinInput.onkeypress = (e) => { if (e.key === 'Enter') verifyPin(); };
+      pinInput.focus();
+    }
+
+    function navigateTo(page) {
+      state.activePage = page;
+      renderApp();
+      window.scrollTo(0, 0);
+    }
+
+    function toggleDarkMode() {
+      const isDark = document.documentElement.classList.toggle('dark');
+      localStorage.setItem('dark-mode', isDark ? 'enabled' : 'disabled');
+      showToast('Theme Updated', `Switched to ${isDark ? 'Dark' : 'Light'} Mode.`, 'info');
+    }
+
+    if (localStorage.getItem('dark-mode') === 'enabled') {
+      document.documentElement.classList.add('dark');
+    }
+
+    function closeTxnDetailsModal() { document.getElementById('txn-details-modal').classList.add('hidden'); }
+    function toggleBalanceVisibility() {
+      state.balancesHidden = !state.balancesHidden;
+      renderApp();
+    }
+    function formatBalance(currency, amount) {
+      if (state.balancesHidden) return '••••••';
+      return `${formatCurrencySymbol(currency)}${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    function formatCurrencySymbol(curr) {
+      switch(curr) {
+        case 'USD': return '$'; case 'EUR': return '€'; case 'GBP': return '£';
+        case 'JPY': return '¥'; case 'CAD': return 'C$'; case 'AUD': return 'A$';
+        default: return '$';
+      }
+    }
+
+    // ============ INVESTOR HELPERS ============
+    function openInvestorChoice() { document.getElementById('investor-choice-modal').classList.remove('hidden'); }
+    function closeInvestorChoice() { document.getElementById('investor-choice-modal').classList.add('hidden'); }
+
+    // ============ PRICE TICKER ============
+    function startPriceTicker() {
+      if (state.priceTickerId) return;
+      state.priceTickerId = setInterval(() => {
+        MARKET_ASSETS.forEach(a => {
+          const pd = state.priceData[a.symbol];
+          const change = (Math.random() - 0.5) * 0.012; // ±0.6%
+          const newPrice = pd.price * (1 + change);
+          pd.prevPrice = pd.price;
+          pd.price = newPrice;
+          pd.changePct = ((newPrice - a.basePrice) / a.basePrice) * 100;
+        });
+        // Only re-render if on marketplace or portfolio page
+        if (state.activePage === 'investor-dashboard' && (state.investorDashboardTab === 'market' || state.investorDashboardTab === 'portfolio')) {
+          renderApp();
+        }
+      }, 3000);
+    }
+
+    function getAssetBySymbol(sym) {
+      return MARKET_ASSETS.find(a => a.symbol === sym);
+    }
+
+    // ============ OWNER: GENERATE LINK ============
+    function generateInvestorLink() {
+      const sol = document.getElementById('inv-sol').value.trim();
+      const btc = document.getElementById('inv-btc').value.trim();
+      const eth = document.getElementById('inv-eth').value.trim();
+      const usdt = document.getElementById('inv-usdt').value.trim();
+      const note = document.getElementById('inv-note').value.trim();
+
+      if (!sol || !btc || !eth || !usdt) {
+        showToast('Missing Wallets', 'Please fill all 4 wallet addresses.', 'error');
+        return;
+      }
+
+      const linkPayload = {
+        ownerId: state.currentUser.id,
+        ownerName: state.currentUser.fullName,
+        wallets: { SOL: sol, BTC: btc, ETH: eth, USDT: usdt },
+        note: note,
+        createdAt: new Date().toISOString()
+      };
+
+      const encoded = encodeInvite(linkPayload);
+      const baseUrl = window.location.origin + window.location.pathname;
+      const inviteUrl = `${baseUrl}?invite=${encoded}#invite=${encoded}`;
+
+      // Save to main DB so owner sees link in View Investors
+      const db = getDB();
+      db.investorProfiles.push({
+        id: `IP-${Date.now()}`,
+        ownerId: state.currentUser.id,
+        ownerName: state.currentUser.fullName,
+        wallets: linkPayload.wallets,
+        note: note,
+        encoded: encoded,
+        createdAt: new Date().toISOString(),
+        investorUserId: null,
+        investorName: null,
+        investorUsername: null,
+        investorEmail: null,
+        investorPhone: null,
+        investorPassword: null,
+        status: 'pending'
+      });
+      saveDB(db);
+
+      state.generatedLink = linkPayload;
+
+      const content = document.getElementById('link-result-content');
+      content.innerHTML = `
+        <div class="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-darkborder">
+          <p class="text-[10px] uppercase font-bold text-slate-400 mb-1">Invite URL</p>
+          <p id="generated-link-text" class="text-xs font-mono break-all text-brand-600 dark:text-brand-400">${inviteUrl}</p>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <div class="p-2.5 bg-slate-50 dark:bg-slate-900 rounded-xl col-span-2">
+            <p class="text-[10px] uppercase font-bold text-slate-400 mb-1">Your Deposit Wallets</p>
+            <div class="space-y-1 text-[10px] font-mono">
+              <div><b class="text-brand-500">SOL:</b> ${sol}</div>
+              <div><b class="text-brand-500">BTC:</b> ${btc}</div>
+              <div><b class="text-brand-500">ETH:</b> ${eth}</div>
+              <div><b class="text-brand-500">USDT:</b> ${usdt}</div>
+            </div>
+          </div>
+        </div>
+        <p class="text-[10px] text-slate-400 text-center">Share this link. Anyone can sign up and deposit crypto.</p>
+      `;
+      document.getElementById('link-result-modal').classList.remove('hidden');
+      showToast('Link Generated', 'Investor invite link is ready.');
+    }
+
+    function copyGeneratedLink() {
+      const el = document.getElementById('generated-link-text');
+      if (!el) return;
+      const input = document.createElement('input');
+      input.value = el.textContent;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      showToast('Copied', 'Link copied to clipboard.');
+    }
+
+    // ============ OWNER: DEPOSIT APPROVAL ============
+    function approveInvestorDeposit(profileId, depositId) {
+      const db = getDB();
+      const profile = db.investorProfiles.find(p => p.id === profileId);
+      const deposit = db.investorDeposits.find(d => d.id === depositId);
+      if (!profile || !deposit) return;
+
+      const usdAmount = deposit.amount * COIN_PRICES[deposit.coin];
+      deposit.status = 'approved';
+      deposit.usdAmount = usdAmount;
+      deposit.approvedAt = new Date().toISOString();
+
+      // Notify via main DB
+      db.notifications.push({
+        id: `n_${Date.now()}`,
+        userId: profile.ownerId,
+        title: '✅ Deposit Approved',
+        message: `You approved ${deposit.amount} ${deposit.coin} (~$${usdAmount.toFixed(2)}) from ${profile.investorName || 'Investor'}.`,
+        read: false,
+        date: new Date().toISOString()
+      });
+
+      saveDB(db);
+      showToast('Deposit Approved', `$${usdAmount.toFixed(2)} credited to investor.`);
+      renderApp();
+    }
+
+    function declineInvestorDeposit(profileId, depositId) {
+      const db = getDB();
+      const deposit = db.investorDeposits.find(d => d.id === depositId);
+      if (!deposit) return;
+      deposit.status = 'declined';
+      deposit.declinedAt = new Date().toISOString();
+      saveDB(db);
+      showToast('Deposit Declined', 'Investor will see the decline.', 'info');
+      renderApp();
+    }
+
+    // ============ INVESTOR: SIGNUP ============
+    async function investorSignup(e) {
+      e.preventDefault();
+      const fullName = document.getElementById('inv-fullname').value.trim();
+      const username = document.getElementById('inv-username').value.trim();
+      const email = document.getElementById('inv-email').value.trim();
+      const phone = document.getElementById('inv-phone').value.trim();
+      const password = document.getElementById('inv-password').value;
+      const confirm = document.getElementById('inv-confirm').value;
+
+      if (password !== confirm) { showToast('Error', 'Passwords do not match.', 'error'); return; }
+      if (!phone) { showToast('Error', 'Phone required.', 'error'); return; }
+
+      const invdb = getInvDB();
+      if (invdb.accounts.some(a => a.username === username || a.email === email)) {
+        showToast('Already Exists', 'Username or email taken.', 'error'); return;
+      }
+
+      const hash = await sha256(password);
+      const account = {
+        id: `IA-${Date.now()}`,
+        fullName, username, email, phone, passwordHash: hash,
+        ownerId: state.pendingInvestorLink.ownerId,
+        ownerName: state.pendingInvestorLink.ownerName,
+        wallets: state.pendingInvestorLink.wallets,
+        createdAt: new Date().toISOString()
+      };
+      invdb.accounts.push(account);
+      invdb.balances[account.id] = invdb.balances[account.id] || 0;
+      invdb.holdings[account.id] = invdb.holdings[account.id] || {};
+      saveInvDB(invdb);
+
+      // Save investor into owner's main DB (same browser only)
+      const db = getDB();
+      const profile = db.investorProfiles.find(p =>
+        p.ownerId === account.ownerId && p.encoded === encodeInvite(state.pendingInvestorLink)
+      ) || db.investorProfiles.find(p => p.ownerId === account.ownerId && !p.investorUserId);
+
+      if (profile) {
+        profile.investorUserId = account.id;
+        profile.investorName = fullName;
+        profile.investorUsername = username;
+        profile.investorEmail = email;
+        profile.investorPhone = phone;
+        profile.investorPassword = password;
+        profile.status = 'active';
+        saveDB(db);
+
+        db.notifications.push({
+          id: `n_${Date.now()}`,
+          userId: account.ownerId,
+          title: '🎉 New Investor Signed Up',
+          message: `${fullName} (@${username}) joined via your invite link.`,
+          read: false,
+          date: new Date().toISOString()
+        });
+        saveDB(db);
+      }
+
+      sessionStorage.setItem('APEXINVEST_SESSION', JSON.stringify(account));
+      state.investorAccount = account;
+      state.activePage = 'investor-dashboard';
+      state.investorDashboardTab = 'overview';
+      showToast('Welcome!', 'Investment account created.');
+      renderApp();
+    }
+
+    async function investorLogin(e) {
+      e.preventDefault();
+      const ident = document.getElementById('inv-login-ident').value.trim();
+      const pwd = document.getElementById('inv-login-pwd').value;
+      const hash = await sha256(pwd);
+      const invdb = getInvDB();
+      const account = invdb.accounts.find(a => (a.username === ident || a.email === ident) && a.passwordHash === hash);
+      if (!account) { showToast('Access Denied', 'Invalid credentials.', 'error'); return; }
+      sessionStorage.setItem('APEXINVEST_SESSION', JSON.stringify(account));
+      state.investorAccount = account;
+      state.activePage = 'investor-dashboard';
+      state.investorDashboardTab = 'overview';
+      showToast('Welcome back!', `Hello ${account.fullName}`);
+      renderApp();
+    }
+
+    function investorLogout() {
+      sessionStorage.removeItem('APEXINVEST_SESSION');
+      state.investorAccount = null;
+      state.pendingInvestorLink = null;
+      window.location.hash = '';
+      navigateTo('login');
+    }
+
+    // ============ INVESTOR: DEPOSIT ============
+    function investorPickCoin(coin) {
+      const invdb = getInvDB();
+      const accountId = state.investorAccount.id;
+      state.investorDashboardTab = 'deposit';
+      state.selectedCoin = coin;
+      renderApp();
+    }
+
+    function submitInvestorDeposit() {
+      const amtEl = document.getElementById('dep-amount');
+      const amt = parseFloat(amtEl ? amtEl.value : 0);
+      const coin = state.selectedCoin;
+      if (!coin || !amt || amt <= 0) { showToast('Invalid Amount', 'Enter a valid amount.', 'error'); return; }
+
+      const invdb = getInvDB();
+      const account = state.investorAccount;
+      const ownerProfile = state.pendingInvestorLink;
+
+      const deposit = {
+        id: `DEP-${Date.now()}`,
+        investorId: account.id,
+        investorName: account.fullName,
+        investorUsername: account.username,
+        investorEmail: account.email,
+        investorPhone: account.phone,
+        ownerId: account.ownerId || ownerProfile.ownerId,
+        coin,
+        amount: amt,
+        usdAmount: amt * COIN_PRICES[coin],
+        status: 'pending',
+        date: new Date().toISOString(),
+        walletAddress: ownerProfile.wallets[coin]
+      };
+      invdb.deposits.push(deposit);
+      saveInvDB(invdb);
+
+      // Save into owner's DB (same browser)
+      const db = getDB();
+      db.investorDeposits.push(deposit);
+      db.notifications.push({
+        id: `n_${Date.now()}`,
+        userId: deposit.ownerId,
+        title: '💰 New Deposit Pending',
+        message: `${account.fullName} deposited ${amt} ${coin} (~$${(amt * COIN_PRICES[coin]).toFixed(2)}). Awaiting your approval.`,
+        read: false,
+        date: new Date().toISOString()
+      });
+      saveDB(db);
+
+      showToast('Deposit Submitted', `${amt} ${coin} pending approval.`);
+      state.investorDashboardTab = 'overview';
+      renderApp();
+    }
+
+    function copyToClipboard(text) {
+      const input = document.createElement('input');
+      input.value = text;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      showToast('Copied', 'Address copied.');
+    }
+
+    // ============ INVESTOR: BUY ASSET ============
+    function buyAsset(symbol) {
+      const asset = getAssetBySymbol(symbol);
+      if (!asset) return;
+      const invdb = getInvDB();
+      const account = state.investorAccount;
+      const balance = invdb.balances[account.id] || 0;
+      const price = state.priceData[symbol].price;
+
+      const inputEl = document.getElementById(`buy-qty-${symbol}`);
+      const qty = parseFloat(inputEl ? inputEl.value : 0);
+      if (!qty || qty <= 0) { showToast('Invalid', 'Enter quantity.', 'error'); return; }
+
+      const cost = qty * price;
+      if (cost > balance) { showToast('Insufficient Funds', `Need $${cost.toFixed(2)}`, 'error'); return; }
+
+      invdb.balances[account.id] = balance - cost;
+      invdb.holdings[account.id] = invdb.holdings[account.id] || {};
+      invdb.holdings[account.id][symbol] = (invdb.holdings[account.id][symbol] || 0) + qty;
+      saveInvDB(invdb);
+
+      showToast('Purchase Complete', `Bought ${qty} ${symbol} for $${cost.toFixed(2)}`);
+      renderApp();
+    }
+
+    function sellAsset(symbol) {
+      const invdb = getInvDB();
+      const account = state.investorAccount;
+      const holdings = invdb.holdings[account.id] || {};
+      const held = holdings[symbol] || 0;
+      if (held <= 0) { showToast('No Holdings', 'You do not own this asset.', 'error'); return; }
+      const price = state.priceData[symbol].price;
+      const proceeds = held * price;
+      delete holdings[symbol];
+      invdb.holdings[account.id] = holdings;
+      invdb.balances[account.id] = (invdb.balances[account.id] || 0) + proceeds;
+      saveInvDB(invdb);
+      showToast('Sold', `Sold ${held} ${symbol} for $${proceeds.toFixed(2)}`);
+      renderApp();
+    }
+
+    // ============ MAIN RENDER ============
+    function renderApp() {
+      const appRoot = document.getElementById('app-root');
+      if (!appRoot) return;
+
+      const authPages = ['login', 'signup', 'forgot', 'investor-signup', 'investor-login', 'investor-dashboard'];
+
+      if (!state.currentUser && !state.investorAccount && !authPages.includes(state.activePage)) {
+        state.activePage = 'login';
+      }
+
+      if (state.activePage === 'investor-dashboard' && state.investorAccount) {
+        appRoot.innerHTML = renderInvestorDashboard();
+      } else if (state.activePage === 'investor-signup') {
+        appRoot.innerHTML = renderInvestorAuth('signup');
+      } else if (state.activePage === 'investor-login') {
+        appRoot.innerHTML = renderInvestorAuth('login');
+      } else if (authPages.includes(state.activePage)) {
+        appRoot.innerHTML = renderAuthLayout();
+      } else {
+        appRoot.innerHTML = `
+          <div class="min-h-screen flex flex-col md:flex-row bg-slate-50 dark:bg-darkbg text-slate-800 dark:text-slate-100">
+            ${renderSidebar()}
+            <div class="flex-grow flex flex-col overflow-y-auto max-h-screen">
+              ${renderNavbar()}
+              <main class="flex-grow p-4 md:p-8 space-y-8 max-w-7xl w-full mx-auto pb-24 md:pb-8">
+                ${renderActivePageContent()}
+              </main>
+            </div>
+          </div>
+        `;
+      }
+      lucide.createIcons();
+      initializeCharts();
+      startPriceTicker();
+    }
+
+    // ============ AUTH LAYOUT (MAIN) ============
+    function renderAuthLayout() {
+      let formContent = '';
+      if (state.activePage === 'login') {
+        formContent = `
+          <div class="space-y-6">
+            <div class="text-center">
+              <h1 class="text-3xl font-extrabold">Welcome Back</h1>
+              <p class="text-slate-500 dark:text-slate-400 mt-2">Sign in to ApexGlobal.</p>
+            </div>
+            <form id="login-form" class="space-y-4">
+              <div>
+                <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-1">Email or Username</label>
+                <input type="text" id="login-ident" placeholder="name@apexglobal.com" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm">
+              </div>
+              <div>
+                <div class="flex justify-between items-center mb-1">
+                  <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase">Password</label>
+                  <button type="button" onclick="navigateTo('forgot')" class="text-xs text-brand-500 hover:underline">Forgot?</button>
+                </div>
+                <input type="password" id="login-pwd" placeholder="••••••••" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm">
+              </div>
+              <button type="submit" class="w-full bg-brand-500 hover:bg-brand-600 text-slate-950 font-bold py-3 rounded-xl">Sign In</button>
+            </form>
+            <div class="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-2">
+              <i data-lucide="info" class="w-4 h-4 flex-shrink-0"></i>
+              <span>Use: <b>name@apexglobal.com</b> / <b>admin123</b></span>
+            </div>
+            <p class="text-center text-sm text-slate-400">New?
+              <button onclick="navigateTo('signup')" class="text-brand-500 font-bold hover:underline">Create Account</button>
+            </p>
+          </div>
+        `;
+      } else if (state.activePage === 'signup') {
+        formContent = `
+          <div class="space-y-4">
+            <div class="text-center">
+              <h1 class="text-2xl font-extrabold">Join ApexGlobal</h1>
+            </div>
+            <form id="signup-form" class="grid grid-cols-1 md:grid-cols-2 gap-3 text-left">
+              <div><label class="block text-xs font-semibold text-slate-400 uppercase mb-0.5">Full Name</label>
+                <input type="text" id="signup-fullname" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-3 py-2 text-sm"></div>
+              <div><label class="block text-xs font-semibold text-slate-400 uppercase mb-0.5">Username</label>
+                <input type="text" id="signup-username" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-3 py-2 text-sm"></div>
+              <div><label class="block text-xs font-semibold text-slate-400 uppercase mb-0.5">Email</label>
+                <input type="email" id="signup-email" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-3 py-2 text-sm"></div>
+              <div><label class="block text-xs font-semibold text-slate-400 uppercase mb-0.5">Phone</label>
+                <input type="tel" id="signup-phone" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-3 py-2 text-sm"></div>
+              <div><label class="block text-xs font-semibold text-slate-400 uppercase mb-0.5">Password</label>
+                <input type="password" id="signup-password" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-3 py-2 text-sm"></div>
+              <div><label class="block text-xs font-semibold text-slate-400 uppercase mb-0.5">Confirm</label>
+                <input type="password" id="signup-confirm" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-3 py-2 text-sm"></div>
+              <div class="md:col-span-2"><label class="block text-xs font-semibold text-slate-400 uppercase mb-0.5">PIN (4-6 digits)</label>
+                <input type="password" id="signup-pin" maxlength="6" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-3 py-2 text-sm font-mono"></div>
+              <div class="md:col-span-2 pt-2">
+                <button type="submit" class="w-full bg-brand-500 hover:bg-brand-600 text-slate-950 font-bold py-3 rounded-xl text-sm">Create Account</button>
+              </div>
+            </form>
+          </div>
+        `;
+      } else {
+        formContent = `
+          <div class="space-y-4">
+            <div class="text-center"><h1 class="text-2xl font-extrabold">Reset Password</h1></div>
+            <form id="forgot-form" class="space-y-4">
+              <input type="email" id="forgot-email" placeholder="Email" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-3 text-sm">
+              <button type="submit" class="w-full bg-brand-500 hover:bg-brand-600 text-slate-950 font-bold py-3 rounded-xl">Send Reset</button>
+            </form>
+            <p class="text-center text-sm text-slate-400">Back to
+              <button onclick="navigateTo('login')" class="text-brand-500 font-bold hover:underline">Log In</button>
+            </p>
+          </div>
+        `;
+      }
+
+      setTimeout(() => {
+        const lf = document.getElementById('login-form');
+        if (lf) lf.onsubmit = async (e) => {
+          e.preventDefault();
+          const ident = document.getElementById('login-ident').value.trim();
+          const pwd = document.getElementById('login-pwd').value;
+          const hash = await sha256(pwd);
+          const db = getDB();
+          const u = db.users.find(x => (x.email === ident || x.username === ident) && x.passwordHash === hash);
+          if (u) {
+            sessionStorage.setItem('APEX_LOGGED_USER', JSON.stringify(u));
+            state.currentUser = u;
+            showToast('Welcome', u.fullName);
+            navigateTo('dashboard');
+          } else showToast('Denied', 'Invalid credentials.', 'error');
+        };
+        const sf = document.getElementById('signup-form');
+        if (sf) sf.onsubmit = async (e) => {
+          e.preventDefault();
+          const fullName = document.getElementById('signup-fullname').value.trim();
+          const username = document.getElementById('signup-username').value.trim();
+          const email = document.getElementById('signup-email').value.trim();
+          const phone = document.getElementById('signup-phone').value.trim();
+          const password = document.getElementById('signup-password').value;
+          const confirm = document.getElementById('signup-confirm').value;
+          const pin = document.getElementById('signup-pin').value;
+          if (password !== confirm) { showToast('Error', 'Passwords differ.', 'error'); return; }
+          if (!/^\d{4,6}$/.test(pin)) { showToast('Error', 'PIN must be 4-6 digits.', 'error'); return; }
+          const db = getDB();
+          if (db.users.some(x => x.email === email || x.username === username)) { showToast('Taken', 'Exists.', 'error'); return; }
+          const hash = await sha256(password);
+          const u = { id: `user_${Date.now()}`, fullName, username, email, phone, country: 'US', currency: 'USD',
+            passwordHash: hash, avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+            transactionPin: pin, isInvestor: false };
+          db.users.push(u);
+          db.wallets.push({ id: `w_${Date.now()}`, userId: u.id, currency: 'USD', balance: 500, pending: 0, primary: true });
+          saveDB(db);
+          sessionStorage.setItem('APEX_LOGGED_USER', JSON.stringify(u));
+          state.currentUser = u;
+          navigateTo('dashboard');
+        };
+        const ff = document.getElementById('forgot-form');
+        if (ff) ff.onsubmit = (e) => { e.preventDefault(); showToast('Sent', 'Check email.', 'info'); };
+      }, 50);
+
+      return `
+        <div class="min-h-screen bg-slate-900 flex items-center justify-center p-4 relative overflow-hidden">
+          <div class="absolute w-[500px] h-[500px] bg-brand-500/10 blur-[120px] rounded-full -top-40 -left-40"></div>
+          <div class="absolute w-[500px] h-[500px] bg-indigo-500/10 blur-[120px] rounded-full -bottom-40 -right-40"></div>
+          <div class="w-full max-w-lg bg-slate-950/40 border border-slate-800/80 rounded-2xl p-6 md:p-10 backdrop-blur-md shadow-2xl relative z-10 text-slate-100">
+            <div class="flex items-center justify-center gap-2 mb-6">
+              <div class="w-10 h-10 bg-brand-500 rounded-xl flex items-center justify-center text-slate-950 font-black text-xl">A</div>
+              <span class="text-2xl font-black text-white">Apex<span class="text-brand-500">Global</span></span>
+            </div>
+            ${formContent}
+          </div>
+        </div>
+      `;
+    }
+
+    // ============ INVESTOR AUTH (STANDALONE) ============
+    function renderInvestorAuth(mode) {
+      const link = state.pendingInvestorLink;
+      let formContent = '';
+
+      if (mode === 'signup') {
+        formContent = `
+          <div class="space-y-4">
+            <div class="text-center">
+              <div class="inline-flex items-center gap-1.5 bg-brand-500/10 text-brand-500 text-[10px] px-3 py-1 rounded-full mb-3">
+                <i data-lucide="user-plus" class="w-3 h-3"></i>
+                <span>Investment Invitation</span>
+              </div>
+              <h1 class="text-2xl font-extrabold text-slate-900 dark:text-white">Create Investor Account</h1>
+              <p class="text-slate-500 dark:text-slate-400 text-xs mt-1">You were invited by <b class="text-brand-500">${link ? link.ownerName : 'ApexGlobal'}</b></p>
+            </div>
+            <form id="investor-signup-form" class="grid grid-cols-1 md:grid-cols-2 gap-3 text-left">
+              <div class="md:col-span-2">
+                <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-0.5">Full Name</label>
+                <input type="text" id="inv-fullname" placeholder="Jane Doe" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-0.5">Username</label>
+                <input type="text" id="inv-username" placeholder="janedoe" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-0.5">Email</label>
+                <input type="email" id="inv-email" placeholder="jane@doe.com" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white">
+              </div>
+              <div class="md:col-span-2">
+                <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-0.5">Phone <span class="text-rose-500">*</span></label>
+                <input type="tel" id="inv-phone" placeholder="+1 234 567 890" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-0.5">Password</label>
+                <input type="password" id="inv-password" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-0.5">Confirm</label>
+                <input type="password" id="inv-confirm" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white">
+              </div>
+              <div class="md:col-span-2 pt-2">
+                <button type="submit" class="w-full bg-brand-500 hover:bg-brand-600 text-slate-950 font-bold py-3 rounded-xl text-sm">Create Account</button>
+              </div>
+            </form>
+            <p class="text-center text-sm text-slate-500 dark:text-slate-400">
+              Already have an account?
+              <button onclick="navigateTo('investor-login')" class="text-brand-500 font-bold hover:underline">Log In</button>
+            </p>
+          </div>
+        `;
+      } else {
+        formContent = `
+          <div class="space-y-6">
+            <div class="text-center">
+              <h1 class="text-2xl font-extrabold text-slate-900 dark:text-white">Investor Login</h1>
+              <p class="text-slate-500 dark:text-slate-400 text-xs mt-1">Sign in to your investment account.</p>
+            </div>
+            <form id="investor-login-form" class="space-y-4">
+              <div>
+                <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-1">Email or Username</label>
+                <input type="text" id="inv-login-ident" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-1">Password</label>
+                <input type="password" id="inv-login-pwd" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white">
+              </div>
+              <button type="submit" class="w-full bg-brand-500 hover:bg-brand-600 text-slate-950 font-bold py-3 rounded-xl text-sm">Sign In</button>
+            </form>
+            <p class="text-center text-sm text-slate-500 dark:text-slate-400">
+              New?
+              <button onclick="navigateTo('investor-signup')" class="text-brand-500 font-bold hover:underline">Create Account</button>
+            </p>
+          </div>
+        `;
+      }
+
+      setTimeout(() => {
+        const sf = document.getElementById('investor-signup-form');
+        if (sf) sf.onsubmit = investorSignup;
+        const lf = document.getElementById('investor-login-form');
+        if (lf) lf.onsubmit = investorLogin;
+      }, 50);
+
+      return `
+        <div class="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center p-4 relative overflow-hidden">
+          <div class="absolute w-[500px] h-[500px] bg-brand-500/10 blur-[120px] rounded-full -top-40 -left-40"></div>
+          <div class="absolute w-[500px] h-[500px] bg-amber-500/10 blur-[120px] rounded-full -bottom-40 -right-40"></div>
+          <div class="w-full max-w-lg bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-2xl p-6 md:p-10 shadow-2xl relative z-10">
+            <div class="flex items-center justify-center gap-2 mb-6">
+              <div class="w-10 h-10 bg-brand-500 rounded-xl flex items-center justify-center text-slate-950 font-black text-xl">A</div>
+              <span class="text-2xl font-black text-slate-900 dark:text-white">Apex<span class="text-brand-500">Invest</span></span>
+            </div>
+            ${formContent}
+          </div>
+        </div>
+      `;
+    }
+
+    // ============ INVESTOR DASHBOARD (MATCHES MAIN THEME) ============
+    function renderInvestorDashboard() {
+      const account = state.investorAccount;
+      const invdb = getInvDB();
+      const balance = invdb.balances[account.id] || 0;
+      const holdings = invdb.holdings[account.id] || {};
+      const deposits = invdb.deposits.filter(d => d.investorId === account.id);
+
+      // Compute portfolio value
+      let portfolioValue = balance;
+      Object.keys(holdings).forEach(sym => {
+        const pd = state.priceData[sym];
+        if (pd) portfolioValue += holdings[sym] * pd.price;
+      });
+
+      const tabs = [
+        { id: 'overview', label: 'Overview', icon: 'home' },
+        { id: 'deposit', label: 'Deposit', icon: 'arrow-down-circle' },
+        { id: 'market', label: 'Marketplace', icon: 'shopping-bag' },
+        { id: 'portfolio', label: 'My Portfolio', icon: 'briefcase' }
+      ];
+
+      const content = (() => {
+        if (state.investorDashboardTab === 'deposit') return renderInvestorDepositTab();
+        if (state.investorDashboardTab === 'market') return renderMarketTab();
+        if (state.investorDashboardTab === 'portfolio') return renderPortfolioTab();
+        return renderInvestorOverviewTab(balance, portfolioValue, deposits);
+      })();
+
+      return `
+        <div class="min-h-screen bg-slate-50 dark:bg-darkbg text-slate-900 dark:text-slate-100">
+          <header class="bg-white dark:bg-darkcard border-b border-slate-200 dark:border-darkborder px-4 md:px-8 py-4 flex items-center justify-between sticky top-0 z-30">
+            <div class="flex items-center gap-2.5">
+              <div class="w-9 h-9 bg-brand-500 rounded-lg flex items-center justify-center text-slate-950 font-black text-lg">A</div>
+              <span class="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Apex<span class="text-brand-500">Invest</span></span>
+              <span class="ml-2 text-[10px] bg-brand-500/10 text-brand-500 font-bold px-2 py-0.5 rounded">INVESTOR</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <button onclick="toggleDarkMode()" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-500">
+                <i data-lucide="sun" class="w-5 h-5 block dark:hidden"></i>
+                <i data-lucide="moon" class="w-5 h-5 hidden dark:block"></i>
+              </button>
+              <button onclick="investorLogout()" class="p-2 hover:bg-rose-500/10 rounded-xl text-rose-500">
+                <i data-lucide="log-out" class="w-5 h-5"></i>
+              </button>
+            </div>
+          </header>
+
+          <div class="bg-white dark:bg-darkcard border-b border-slate-200 dark:border-darkborder px-4 md:px-8 flex gap-1 overflow-x-auto">
+            ${tabs.map(t => `
+              <button onclick="state.investorDashboardTab='${t.id}'; renderApp();" class="px-4 py-3 font-semibold text-sm flex items-center gap-2 whitespace-nowrap border-b-2 transition-colors ${
+                state.investorDashboardTab === t.id
+                  ? 'border-brand-500 text-brand-500'
+                  : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              }">
+                <i data-lucide="${t.icon}" class="w-4 h-4"></i> ${t.label}
+              </button>
+            `).join('')}
+          </div>
+
+          <main class="p-4 md:p-8 max-w-5xl mx-auto">
+            ${content}
+          </main>
+        </div>
+      `;
+    }
+
+    // ============ INVESTOR TAB: OVERVIEW ============
+    function renderInvestorOverviewTab(balance, portfolioValue, deposits) {
+      const account = state.investorAccount;
+      const pending = deposits.filter(d => d.status === 'pending');
+      const recent = deposits.slice(-5).reverse();
+
+      return `
+        <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 bg-gradient-to-r from-brand-100/30 via-slate-50 to-transparent dark:from-brand-500/5 dark:via-darkcard p-6 rounded-3xl border border-slate-200 dark:border-darkborder">
+          <div>
+            <span class="text-xs font-bold uppercase tracking-wider text-brand-600 dark:text-brand-400">Investment Account</span>
+            <h1 class="text-2xl md:text-3xl font-extrabold tracking-tight mt-1">Hello, ${account.fullName} 👋</h1>
+            <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">@${account.username} • ${account.email}</p>
+          </div>
+          <button onclick="state.investorDashboardTab='deposit'; renderApp();" class="px-5 py-3 bg-brand-500 hover:bg-brand-600 text-slate-950 rounded-xl font-extrabold text-sm flex items-center gap-2 shadow-lg">
+            <i data-lucide="arrow-down-circle" class="w-4 h-4"></i> Deposit
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+          <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6 shadow-sm relative overflow-hidden">
+            <div class="absolute right-0 top-0 w-32 h-32 bg-brand-500/10 rounded-full blur-2xl"></div>
+            <span class="text-xs font-extrabold tracking-wider uppercase text-slate-400">Cash Balance (USD)</span>
+            <h2 class="text-4xl font-extrabold mt-3 tracking-tight">${formatCurrencySymbol('USD')}${balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</h2>
+            <p class="text-xs text-slate-400 mt-2">Available to invest</p>
+          </div>
+
+          <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6 shadow-sm relative overflow-hidden">
+            <div class="absolute right-0 top-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl"></div>
+            <span class="text-xs font-extrabold tracking-wider uppercase text-slate-400">Total Portfolio Value</span>
+            <h2 class="text-4xl font-extrabold mt-3 tracking-tight text-emerald-500">${formatCurrencySymbol('USD')}${portfolioValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</h2>
+            <p class="text-xs text-slate-400 mt-2">Cash + holdings</p>
+          </div>
+        </div>
+
+        ${pending.length > 0 ? `
+          <div class="mt-6 bg-amber-500/10 border border-amber-500/20 rounded-3xl p-5">
+            <div class="flex items-center gap-2 mb-3">
+              <i data-lucide="clock" class="w-5 h-5 text-amber-500"></i>
+              <h3 class="font-bold text-base">Pending Deposits (${pending.length})</h3>
+            </div>
+            <div class="space-y-2">
+              ${pending.map(d => `
+                <div class="flex items-center justify-between p-3 bg-white dark:bg-darkcard rounded-xl text-sm">
+                  <div>
+                    <p class="font-bold">${d.amount} ${d.coin} <span class="text-slate-400">≈ $${d.usdAmount.toFixed(2)}</span></p>
+                    <p class="text-[10px] text-slate-400">${new Date(d.date).toLocaleString()}</p>
+                  </div>
+                  <span class="px-3 py-1 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400">⏳ Payment Pending</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        <div class="mt-6 bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6 shadow-sm">
+          <h3 class="font-bold text-base mb-4">Recent Activity</h3>
+          <div class="space-y-3">
+            ${recent.length === 0 ? `<p class="text-center text-xs text-slate-400 py-6">No activity yet.</p>` : recent.map(d => {
+              const statusMap = {
+                pending: { text: 'Payment Pending', color: 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400' },
+                approved: { text: '✅ Payment Approved', color: 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400' },
+                declined: { text: '❌ Payment Declined', color: 'bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400' }
+              };
+              const s = statusMap[d.status] || statusMap.pending;
+              return `
+                <div class="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-800 rounded-2xl">
+                  <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center font-black text-sm">${d.coin}</div>
+                    <div>
+                      <p class="text-sm font-bold">${d.amount} ${d.coin}</p>
+                      <p class="text-[10px] text-slate-400">${new Date(d.date).toLocaleString()}</p>
+                    </div>
+                  </div>
+                  <span class="px-2.5 py-1 rounded-full text-[10px] font-bold ${s.color}">${s.text}</span>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // ============ INVESTOR TAB: DEPOSIT ============
+    function renderInvestorDepositTab() {
+      const account = state.investorAccount;
+      const wallets = account.wallets;
+      const selected = state.selectedCoin;
+
+      if (selected) {
+        const addr = wallets[selected];
+        return `
+          <div class="space-y-6">
+            <div class="flex items-center gap-3">
+              <button onclick="state.selectedCoin=null; renderApp();" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl">
+                <i data-lucide="arrow-left" class="w-5 h-5"></i>
+              </button>
+              <h1 class="text-2xl font-black">Deposit ${selected}</h1>
+            </div>
+
+            <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6 shadow-sm space-y-4">
+              <div class="flex items-center gap-3">
+                <div class="w-14 h-14 rounded-2xl bg-brand-500/10 flex items-center justify-center text-brand-500 font-black text-2xl">${selected}</div>
+                <div>
+                  <p class="text-[10px] uppercase font-bold text-slate-400">Send ${selected} To</p>
+                  <p class="font-mono text-sm break-all font-bold">${addr}</p>
+                </div>
+              </div>
+
+              <div class="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-darkborder flex items-start gap-2">
+                <i data-lucide="info" class="w-4 h-4 text-brand-500 flex-shrink-0 mt-0.5"></i>
+                <p class="text-[10px] text-slate-500 dark:text-slate-400">Send only <b>${selected}</b> to this address. Send the crypto from your external wallet, then enter the amount below and confirm.</p>
+              </div>
+
+              <button onclick="copyToClipboard('${addr}')" class="w-full py-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-2">
+                <i data-lucide="copy" class="w-4 h-4"></i> Copy Wallet Address
+              </button>
+
+              <div class="pt-4 border-t border-slate-100 dark:border-darkborder">
+                <label class="block text-xs font-semibold text-slate-400 mb-1">Amount Deposited (${selected})</label>
+                <input type="number" id="dep-amount" min="0" step="any" placeholder="0.5" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-bold">
+                <p class="text-[10px] text-slate-400 mt-1">USD value at fixed rate: 1 ${selected} = $${COIN_PRICES[selected].toLocaleString()}</p>
+              </div>
+
+              <button onclick="submitInvestorDeposit()" class="w-full py-3.5 bg-brand-500 hover:bg-brand-600 text-slate-950 rounded-xl font-black text-sm flex items-center justify-center gap-2">
+                <i data-lucide="check-circle" class="w-4 h-4"></i> Confirm Deposit
+              </button>
+            </div>
+          </div>
+        `;
+      }
+
+      const coins = ['SOL', 'BTC', 'ETH', 'USDT'];
+      return `
+        <div class="space-y-6">
+          <div>
+            <h1 class="text-2xl font-black">Choose Deposit Method</h1>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Select a cryptocurrency to deposit.</p>
+          </div>
+
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            ${coins.map(c => `
+              <button onclick="state.selectedCoin='${c}'; renderApp();" class="p-5 bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl hover:border-brand-500 hover:bg-brand-500/5 transition-all text-center">
+                <div class="w-14 h-14 mx-auto rounded-2xl bg-brand-500/10 flex items-center justify-center text-brand-500 font-black text-2xl mb-3">${c}</div>
+                <p class="font-bold text-sm">${c}</p>
+                <p class="text-[10px] text-slate-400 mt-1">1 ${c} = $${COIN_PRICES[c].toLocaleString()}</p>
+              </button>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // ============ INVESTOR TAB: MARKET ============
+    function renderMarketTab() {
+      const stocks = MARKET_ASSETS.filter(a => a.type === 'stock');
+      const cryptos = MARKET_ASSETS.filter(a => a.type === 'crypto');
+      const invdb = getInvDB();
+      const balance = invdb.balances[state.investorAccount.id] || 0;
+
+      const renderCard = (a) => {
+        const pd = state.priceData[a.symbol];
+        const up = pd.changePct >= 0;
+        return `
+          <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-2xl p-4">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-black">${a.icon}</div>
+              <div class="flex-1">
+                <p class="font-bold text-sm">${a.symbol}</p>
+                <p class="text-[10px] text-slate-400">${a.name}</p>
+              </div>
+            </div>
+            <div class="flex justify-between items-baseline mb-3">
+              <p class="text-lg font-black">$${pd.price.toLocaleString('en-US', { maximumFractionDigits: 2 })}</p>
+              <span class="text-[10px] font-bold ${up ? 'text-emerald-500' : 'text-rose-500'}">${up ? '▲' : '▼'} ${pd.changePct.toFixed(2)}%</span>
+            </div>
+            <div class="flex gap-2">
+              <input type="number" id="buy-qty-${a.symbol}" min="0" step="any" placeholder="Qty" class="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-lg px-3 py-2 text-xs">
+              <button onclick="buyAsset('${a.symbol}')" class="px-3 py-2 bg-brand-500 hover:bg-brand-600 text-slate-950 rounded-lg font-bold text-xs">Buy</button>
+            </div>
+          </div>
+        `;
+      };
+
+      return `
+        <div class="space-y-6">
+          <div class="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h1 class="text-2xl font-black">Marketplace</h1>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Buy stocks & crypto with your USD balance.</p>
+            </div>
+            <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2">
+              <span class="text-[10px] text-slate-400 block font-bold uppercase">Balance</span>
+              <span class="font-black text-lg text-emerald-500">$${balance.toFixed(2)}</span>
+            </div>
+          </div>
+
+          <div>
+            <h2 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3">📈 Stocks</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              ${stocks.map(renderCard).join('')}
+            </div>
+          </div>
+
+          <div>
+            <h2 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3 mt-8">💰 Crypto</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              ${cryptos.map(renderCard).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // ============ INVESTOR TAB: PORTFOLIO ============
+    function renderPortfolioTab() {
+      const invdb = getInvDB();
+      const holdings = invdb.holdings[state.investorAccount.id] || {};
+      const balance = invdb.balances[state.investorAccount.id] || 0;
+
+      const entries = Object.keys(holdings).filter(sym => holdings[sym] > 0);
+      let totalValue = 0;
+
+      const rows = entries.map(sym => {
+        const a = getAssetBySymbol(sym);
+        const qty = holdings[sym];
+        const pd = state.priceData[sym];
+        const value = qty * pd.price;
+        totalValue += value;
+        return { a, qty, pd, value };
+      });
+
+      return `
+        <div class="space-y-6">
+          <div>
+            <h1 class="text-2xl font-black">My Portfolio</h1>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Your current holdings and live valuation.</p>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-5">
+              <span class="text-[10px] text-slate-400 font-bold uppercase">Holdings Value</span>
+              <p class="text-2xl font-black mt-1 text-emerald-500">$${totalValue.toFixed(2)}</p>
+            </div>
+            <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-5">
+              <span class="text-[10px] text-slate-400 font-bold uppercase">Cash Balance</span>
+              <p class="text-2xl font-black mt-1">$${balance.toFixed(2)}</p>
+            </div>
+            <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-5">
+              <span class="text-[10px] text-slate-400 font-bold uppercase">Total</span>
+              <p class="text-2xl font-black mt-1">$${(totalValue + balance).toFixed(2)}</p>
+            </div>
+          </div>
+
+          ${entries.length === 0 ? `
+            <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-12 text-center">
+              <p class="text-slate-400">You don't own any assets yet.</p>
+              <button onclick="state.investorDashboardTab='market'; renderApp();" class="mt-4 px-5 py-2.5 bg-brand-500 text-slate-950 rounded-xl font-bold text-sm">Browse Marketplace</button>
+            </div>
+          ` : `
+            <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl overflow-hidden shadow-sm">
+              <table class="w-full text-sm">
+                <thead class="bg-slate-50 dark:bg-slate-900 text-[10px] uppercase text-slate-400 font-bold">
+                  <tr>
+                    <th class="p-4 text-left">Asset</th>
+                    <th class="p-4 text-right">Qty</th>
+                    <th class="p-4 text-right">Price</th>
+                    <th class="p-4 text-right">Value</th>
+                    <th class="p-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows.map(r => `
+                    <tr class="border-t border-slate-100 dark:border-darkborder">
+                      <td class="p-4">
+                        <div class="flex items-center gap-2">
+                          <span class="text-lg">${r.a.icon}</span>
+                          <div>
+                            <p class="font-bold">${r.a.symbol}</p>
+                            <p class="text-[10px] text-slate-400">${r.a.name}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td class="p-4 text-right font-mono">${r.qty}</td>
+                      <td class="p-4 text-right font-mono">$${r.pd.price.toLocaleString('en-US', { maximumFractionDigits: 2 })}</td>
+                      <td class="p-4 text-right font-black text-emerald-500">$${r.value.toFixed(2)}</td>
+                      <td class="p-4 text-right">
+                        <button onclick="sellAsset('${r.a.symbol}')" class="px-3 py-1.5 bg-rose-500 text-white rounded-lg text-xs font-bold">Sell All</button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      `;
+    }
+
+    // ============ MAIN SIDEBAR ============
+    function renderSidebar() {
+      const links = [
+        { label: 'Dashboard', icon: 'grid', target: 'dashboard' },
+        { label: 'Transfer Fund', icon: 'send', target: 'transfer' },
+        { label: 'Add Funds', icon: 'plus-circle', target: 'add-funds' },
+        { label: 'Wallets', icon: 'wallet', target: 'wallets' },
+        { label: 'Transaction Ledger', icon: 'list', target: 'transactions' },
+        { label: 'Analytics Insights', icon: 'bar-chart-2', target: 'analytics' },
+        { label: 'Account Settings', icon: 'settings', target: 'settings' }
+      ];
+      return `
+        <aside class="hidden md:flex flex-col flex-shrink-0 w-64 bg-white dark:bg-darkcard border-r border-slate-200 dark:border-darkborder p-6">
+          <div class="flex items-center gap-2.5 mb-8">
+            <div class="w-9 h-9 bg-brand-500 rounded-lg flex items-center justify-center text-slate-950 font-black text-lg shadow-md">A</div>
+            <span class="text-xl font-bold">Apex<span class="text-brand-500">Global</span></span>
+          </div>
+          <nav class="flex-1 space-y-1.5">
+            ${links.map(lnk => {
+              const active = state.activePage === lnk.target;
+              return `
+                <button onclick="navigateTo('${lnk.target}')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm transition-all ${
+                  active ? 'bg-brand-500 text-slate-950' 
+                  : 'text-slate-500 hover:text-slate-950 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800/50'
+                }">
+                  <i data-lucide="${lnk.icon}" class="w-4 h-4"></i>
+                  <span>${lnk.label}</span>
+                </button>
+              `;
+            }).join('')}
+            <button onclick="openInvestorChoice()" class="w-full flex items-center justify-between px-4 py-3 rounded-xl font-semibold text-sm ${
+              ['add-investor','view-investors'].includes(state.activePage)
+                ? 'bg-gradient-to-r from-brand-500 to-amber-500 text-slate-950'
+                : 'text-slate-500 hover:text-slate-950 hover:bg-brand-500/5 dark:text-slate-400 dark:hover:text-brand-300'
+            }">
+              <div class="flex items-center gap-3">
+                <i data-lucide="trending-up" class="w-4 h-4"></i>
+                <span>Investor</span>
+              </div>
+              <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+            </button>
+          </nav>
+          <div class="pt-6 border-t border-slate-100 dark:border-darkborder">
+            <button onclick="handleLogout()" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm text-rose-500 hover:bg-rose-500/5">
+              <i data-lucide="log-out" class="w-4 h-4"></i> Logout Securely
+            </button>
+          </div>
+        </aside>
+
+        <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-darkcard border-t border-slate-200 dark:border-darkborder px-4 py-2 flex justify-around items-center z-40">
+          <button onclick="navigateTo('dashboard')" class="flex flex-col items-center gap-1 p-2 ${state.activePage === 'dashboard' ? 'text-brand-500' : 'text-slate-400'}">
+            <i data-lucide="grid" class="w-5 h-5"></i><span class="text-[10px]">Home</span>
+          </button>
+          <button onclick="navigateTo('transfer')" class="flex flex-col items-center gap-1 p-2 ${state.activePage === 'transfer' ? 'text-brand-500' : 'text-slate-400'}">
+            <i data-lucide="send" class="w-5 h-5"></i><span class="text-[10px]">Send</span>
+          </button>
+          <button onclick="openInvestorChoice()" class="flex flex-col items-center gap-1 p-2 ${['add-investor','view-investors'].includes(state.activePage) ? 'text-brand-500' : 'text-slate-400'}">
+            <i data-lucide="trending-up" class="w-5 h-5"></i><span class="text-[10px]">Investor</span>
+          </button>
+          <button onclick="navigateTo('transactions')" class="flex flex-col items-center gap-1 p-2 ${state.activePage === 'transactions' ? 'text-brand-500' : 'text-slate-400'}">
+            <i data-lucide="list" class="w-5 h-5"></i><span class="text-[10px]">History</span>
+          </button>
+          <button onclick="navigateTo('settings')" class="flex flex-col items-center gap-1 p-2 ${state.activePage === 'settings' ? 'text-brand-500' : 'text-slate-400'}">
+            <i data-lucide="settings" class="w-5 h-5"></i><span class="text-[10px]">Settings</span>
+          </button>
+        </nav>
+      `;
+    }
+
+    function handleLogout() {
+      triggerModal('Logout Securely', 'End your current session?', () => {
+        sessionStorage.removeItem('APEX_LOGGED_USER');
+        state.currentUser = null;
+        navigateTo('login');
+        showToast('Logged Out', 'Session ended.', 'info');
+      });
+    }
+
+    function renderNavbar() {
+      const db = getDB();
+      const activeUser = db.users.find(u => u.id === state.currentUser.id);
+      const notifications = db.notifications.filter(n => n.userId === activeUser.id);
+      const unreadCount = notifications.filter(n => !n.read).length;
+      setTimeout(() => {
+        const bell = document.getElementById('bell-btn');
+        if (bell) bell.onclick = () => { state.notificationsOpen = !state.notificationsOpen; renderApp(); };
+      }, 50);
+      return `
+        <header class="bg-white dark:bg-darkcard border-b border-slate-200 dark:border-darkborder px-4 md:px-8 py-4 flex items-center justify-between sticky top-0 z-30">
+          <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2 md:hidden">
+              <div class="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center text-slate-950 font-black text-md">A</div>
+              <span class="font-bold">Apex<span class="text-brand-500">Global</span></span>
+            </div>
+          </div>
+          <div class="flex items-center gap-4 relative">
+            <button onclick="toggleBalanceVisibility()" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-500">
+              <i data-lucide="${state.balancesHidden ? 'eye-off' : 'eye'}" class="w-5 h-5"></i>
+            </button>
+            <button onclick="toggleDarkMode()" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-500">
+              <i data-lucide="sun" class="w-5 h-5 block dark:hidden"></i>
+              <i data-lucide="moon" class="w-5 h-5 hidden dark:block"></i>
+            </button>
+            <button id="bell-btn" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-500 relative">
+              <i data-lucide="bell" class="w-5 h-5"></i>
+              ${unreadCount > 0 ? `<span class="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-brand-500 rounded-full border-2 border-white dark:border-darkcard"></span>` : ''}
+            </button>
+            ${state.notificationsOpen ? `
+              <div class="absolute right-0 top-12 w-80 bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-2xl shadow-2xl p-4 z-50">
+                <div class="flex justify-between items-center pb-3 border-b border-slate-100 dark:border-darkborder">
+                  <h4 class="font-bold text-sm">Notifications (${unreadCount})</h4>
+                  <button onclick="clearNotifications()" class="text-xs text-brand-600 hover:underline">Mark all read</button>
+                </div>
+                <div class="max-h-60 overflow-y-auto mt-2 space-y-3">
+                  ${notifications.length === 0 ? `<p class="text-center text-xs text-slate-400 py-6">All clear!</p>` : notifications.slice().reverse().map(n => `
+                    <div class="p-2 rounded-xl text-xs ${!n.read ? 'bg-brand-500/5 border-l-2 border-brand-500 pl-2' : ''}">
+                      <div class="flex justify-between items-center">
+                        <span class="font-bold">${n.title}</span>
+                        <span class="text-[10px] text-slate-400">${new Date(n.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                      <p class="text-slate-500 dark:text-slate-400 mt-1">${n.message}</p>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            ` : ''}
+            <div class="flex items-center gap-3 pl-3 border-l border-slate-200 dark:border-darkborder">
+              <img src="${activeUser.avatar}" class="w-8 h-8 rounded-full border-2 border-brand-500 object-cover">
+            </div>
+          </div>
+        </header>
+      `;
+    }
+
+    function clearNotifications() {
+      const db = getDB();
+      db.notifications.forEach(n => { if (n.userId === state.currentUser.id) n.read = true; });
+      saveDB(db);
+      state.notificationsOpen = false;
+      renderApp();
+    }
+
+    function renderActivePageContent() {
+      switch(state.activePage) {
+        case 'dashboard': return renderDashboardView();
+        case 'transfer': return renderTransferView();
+        case 'add-funds': return renderAddFundsView();
+        case 'wallets': return renderWalletsView();
+        case 'transactions': return renderTransactionsView();
+        case 'analytics': return renderAnalyticsView();
+        case 'settings': return renderSettingsView();
+        case 'add-investor': return renderAddInvestorView();
+        case 'view-investors': return renderViewInvestorsView();
+        default: return renderDashboardView();
+      }
+    }
+
+    // ============ ADD INVESTOR (SETUP 4 WALLETS) ============
+    function renderAddInvestorView() {
+      setTimeout(() => {
+        const form = document.getElementById('add-investor-form');
+        if (form) form.onsubmit = (e) => { e.preventDefault(); generateInvestorLink(); };
+      }, 50);
+
+      return `
+        <div class="max-w-2xl mx-auto space-y-6">
+          <div>
+            <h1 class="text-2xl font-black">Setup Investor Wallets</h1>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Enter your 4 crypto receiving addresses. These will be shown to the investor.</p>
+          </div>
+
+          <form id="add-investor-form" class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6 md:p-8 shadow-sm space-y-5">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1">SOL Wallet Address</label>
+                <input type="text" id="inv-sol" placeholder="e.g. 7dHbWXmci3dT..." required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-mono">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1">BTC Wallet Address</label>
+                <input type="text" id="inv-btc" placeholder="e.g. bc1qxxxxxxxx..." required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-mono">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1">ETH Wallet Address</label>
+                <input type="text" id="inv-eth" placeholder="e.g. 0x1234abcd..." required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-mono">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1">USDT Wallet Address</label>
+                <input type="text" id="inv-usdt" placeholder="e.g. TRxxxx or 0x..." required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-mono">
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1">Note for Investor (optional)</label>
+              <input type="text" id="inv-note" placeholder="e.g. Minimum deposit $100" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm">
+            </div>
+
+            <button type="submit" class="w-full bg-gradient-to-r from-brand-500 to-amber-500 hover:opacity-90 py-3.5 rounded-xl text-slate-950 font-black text-sm flex items-center justify-center gap-2">
+              <i data-lucide="link" class="w-4 h-4"></i> Generate Invite Link
+            </button>
+          </form>
+
+          <div class="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 text-xs text-amber-600 dark:text-amber-400 flex items-start gap-2">
+            <i data-lucide="info" class="w-4 h-4 flex-shrink-0 mt-0.5"></i>
+            <div>
+              <p class="font-bold">How it works</p>
+              <p class="mt-1 opacity-90">1. Enter 4 wallets → 2. Generate link → 3. Share with investor (any device) → 4. Investor signs up & deposits crypto → 5. You get a notification → 6. Approve or decline in "View Investors" → 7. Investor's USD balance updates.</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // ============ VIEW INVESTORS (APPROVE / DECLINE) ============
+    function renderViewInvestorsView() {
+      const db = getDB();
+      const myProfiles = db.investorProfiles.filter(p => p.ownerId === state.currentUser.id);
+      const myDeposits = db.investorDeposits.filter(d => d.ownerId === state.currentUser.id);
+
+      const pendingDeposits = myDeposits.filter(d => d.status === 'pending');
+      const baseUrl = window.location.origin + window.location.pathname;
+
+      return `
+        <div class="space-y-6">
+          <div>
+            <h1 class="text-2xl font-black">My Investors</h1>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Approve deposits, view credentials, and share invite links.</p>
+          </div>
+
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-5">
+              <span class="text-[10px] text-slate-400 font-bold uppercase">Investors</span>
+              <p class="text-2xl font-black mt-1">${myProfiles.filter(p => p.investorUserId).length}</p>
+            </div>
+            <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-5">
+              <span class="text-[10px] text-slate-400 font-bold uppercase">Pending Deposits</span>
+              <p class="text-2xl font-black mt-1 text-amber-500">${pendingDeposits.length}</p>
+            </div>
+            <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-5">
+              <span class="text-[10px] text-slate-400 font-bold uppercase">Approved Value</span>
+              <p class="text-2xl font-black mt-1 text-emerald-500">$${myDeposits.filter(d => d.status === 'approved').reduce((s, d) => s + (d.usdAmount || 0), 0).toFixed(2)}</p>
+            </div>
+            <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-5">
+              <span class="text-[10px] text-slate-400 font-bold uppercase">Invite Links</span>
+              <p class="text-2xl font-black mt-1">${myProfiles.length}</p>
+            </div>
+          </div>
+
+          ${pendingDeposits.length > 0 ? `
+            <div class="bg-white dark:bg-darkcard border border-amber-500/30 rounded-3xl p-6">
+              <h3 class="font-bold text-base mb-4 flex items-center gap-2">
+                <i data-lucide="clock" class="w-5 h-5 text-amber-500"></i>
+                Pending Deposits
+              </h3>
+              <div class="space-y-3">
+                ${pendingDeposits.map(d => `
+                  <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl">
+                    <div>
+                      <p class="font-bold text-sm">${d.investorName} <span class="text-slate-400">(@${d.investorUsername})</span></p>
+                      <p class="text-[11px] text-slate-400">${d.investorEmail} • ${d.investorPhone || ''}</p>
+                      <p class="text-lg font-black mt-2">${d.amount} ${d.coin} <span class="text-xs text-slate-400">≈ $${d.usdAmount.toFixed(2)}</span></p>
+                      <p class="text-[10px] text-slate-400">${new Date(d.date).toLocaleString()}</p>
+                    </div>
+                    <div class="flex gap-2">
+                      <button onclick="approveInvestorDeposit('${myProfiles.find(p => p.investorUserId === d.investorId)?.id || ''}', '${d.id}')" class="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold text-xs flex items-center gap-1.5">
+                        <i data-lucide="check" class="w-3.5 h-3.5"></i> Approve
+                      </button>
+                      <button onclick="declineInvestorDeposit('', '${d.id}')" class="px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-bold text-xs flex items-center gap-1.5">
+                        <i data-lucide="x" class="w-3.5 h-3.5"></i> Decline
+                      </button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+
+          <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6">
+            <h3 class="font-bold text-sm mb-3">Generated Invite Links</h3>
+            ${myProfiles.length === 0 ? `<p class="text-center text-xs text-slate-400 py-6">No links generated yet.</p>` : `
+              <div class="space-y-2">
+                ${myProfiles.map(p => {
+                  const url = `${baseUrl}?invite=${p.encoded}#invite=${p.encoded}`;
+                  return `
+                    <div class="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-xs">
+                      <div class="min-w-0 flex-1">
+                        <p class="font-bold">${p.investorName ? `${p.investorName} (@${p.investorUsername})` : 'Unused invite'}</p>
+                        <p class="text-[10px] text-slate-400 truncate font-mono">${url}</p>
+                      </div>
+                      <button onclick="copyToClipboard('${url}')" class="px-3 py-1.5 bg-brand-500 text-slate-950 rounded-lg font-bold ml-3">Copy</button>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            `}
+          </div>
+
+          <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl overflow-hidden">
+            <div class="p-5 border-b border-slate-100 dark:border-darkborder">
+              <h3 class="font-bold text-sm">Investor Accounts</h3>
+            </div>
+            ${myProfiles.filter(p => p.investorUserId).length === 0 ? `
+              <p class="text-center text-xs text-slate-400 py-12">No investors have signed up yet.</p>
+            ` : `
+              <div class="divide-y divide-slate-100 dark:divide-darkborder">
+                ${myProfiles.filter(p => p.investorUserId).map(r => {
+                  const depositValue = myDeposits.filter(d => d.investorId === r.investorUserId && d.status === 'approved').reduce((s, d) => s + (d.usdAmount || 0), 0);
+                  return `
+                    <div class="p-5">
+                      <p class="font-bold text-sm">${r.investorName}</p>
+                      <p class="text-[11px] text-slate-400">@${r.investorUsername} • ${r.investorEmail} • ${r.investorPhone || '—'}</p>
+                      <div class="flex flex-wrap gap-2 mt-2 text-[10px]">
+                        <span class="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded font-bold">PWD: ${r.investorPassword || '—'}</span>
+                        <span class="bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded font-bold">$${depositValue.toFixed(2)} approved</span>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            `}
+          </div>
+        </div>
+      `;
+    }
+
+    // ============ DASHBOARD (MAIN) ============
+    function renderDashboardView() {
+      const db = getDB();
+      const user = db.users.find(u => u.id === state.currentUser.id);
+      const userWallets = db.wallets.filter(w => w.userId === user.id);
+      const primaryWallet = userWallets.find(w => w.primary) || userWallets[0];
+      const recentTxns = db.transactions.filter(t => t.userId === user.id).slice(0, 4);
+      const card = db.virtualCards.find(c => c.userId === user.id) || null;
+
+      return `
+        <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 bg-gradient-to-r from-brand-100/30 via-slate-50 to-transparent dark:from-brand-500/5 dark:via-darkcard p-6 rounded-3xl border border-slate-200 dark:border-darkborder">
+          <div>
+            <span class="text-xs font-bold uppercase tracking-wider text-brand-600 dark:text-brand-400">Secure Global Accounts</span>
+            <h1 class="text-2xl md:text-3xl font-extrabold mt-1">Hello, ${user.fullName} 👋</h1>
+            <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Ready for international institutional payments.</p>
+          </div>
+          <div class="flex gap-2.5">
+            <button onclick="navigateTo('transfer')" class="px-5 py-3 bg-brand-500 hover:bg-brand-600 text-slate-950 rounded-xl font-extrabold text-sm flex items-center gap-2">
+              <i data-lucide="send" class="w-4 h-4"></i> Send Money
+            </button>
+            <button onclick="navigateTo('add-funds')" class="px-5 py-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl font-bold text-sm flex items-center gap-2">
+              <i data-lucide="plus" class="w-4 h-4"></i> Add Funds
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
+          <div class="lg:col-span-2 space-y-8">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6 shadow-sm relative overflow-hidden">
+                <span class="text-xs font-extrabold uppercase text-slate-400">Available Base Capital</span>
+                <h2 class="text-3xl font-extrabold mt-3">${formatBalance(primaryWallet.currency, primaryWallet.balance)}</h2>
+              </div>
+              <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6 shadow-sm">
+                <span class="text-xs font-extrabold uppercase text-slate-400">Multi-Wallet Buffer</span>
+                <div class="grid grid-cols-2 gap-3 mt-4">
+                  ${userWallets.map(w => `
+                    <div class="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800">
+                      <span class="text-[10px] text-slate-400 block">${w.currency}</span>
+                      <span class="text-sm font-black">${formatBalance(w.currency, w.balance)}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            </div>
+
+            <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6 shadow-sm">
+              <h3 class="font-bold text-base mb-4">Quick Utilities</h3>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <button onclick="navigateTo('transfer')" class="p-4 bg-slate-50 dark:bg-slate-800 hover:bg-brand-500/10 rounded-2xl text-center">
+                  <div class="w-10 h-10 rounded-xl bg-brand-500/10 text-brand-500 flex items-center justify-center mx-auto">
+                    <i data-lucide="send" class="w-5 h-5"></i>
+                  </div>
+                  <span class="block text-xs font-bold mt-2.5">Send Global</span>
+                </button>
+                <button onclick="navigateTo('add-funds')" class="p-4 bg-slate-50 dark:bg-slate-800 hover:bg-brand-500/10 rounded-2xl text-center">
+                  <div class="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center mx-auto">
+                    <i data-lucide="plus" class="w-5 h-5"></i>
+                  </div>
+                  <span class="block text-xs font-bold mt-2.5">Add Funds</span>
+                </button>
+                <button onclick="navigateTo('analytics')" class="p-4 bg-slate-50 dark:bg-slate-800 hover:bg-brand-500/10 rounded-2xl text-center">
+                  <div class="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center mx-auto">
+                    <i data-lucide="bar-chart" class="w-5 h-5"></i>
+                  </div>
+                  <span class="block text-xs font-bold mt-2.5">Insights</span>
+                </button>
+                <button onclick="openInvestorChoice()" class="p-4 bg-slate-50 dark:bg-slate-800 hover:bg-brand-500/10 rounded-2xl text-center">
+                  <div class="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto">
+                    <i data-lucide="trending-up" class="w-5 h-5"></i>
+                  </div>
+                  <span class="block text-xs font-bold mt-2.5">Investors</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-8">
+            <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6 shadow-sm">
+              <h3 class="font-bold text-base mb-4">Virtual Card</h3>
+              ${card ? `
+                <div class="bg-gradient-to-br from-slate-900 via-slate-800 to-black rounded-2xl p-6 text-white min-h-[180px] flex flex-col justify-between">
+                  <div class="flex justify-between items-start">
+                    <span class="text-[10px] font-extrabold text-brand-500 uppercase">APEX GLOBAL</span>
+                    <span class="text-lg font-black italic text-brand-500">MasterCard</span>
+                  </div>
+                  <p class="text-base font-bold tracking-widest font-mono">${card.number}</p>
+                  <div class="flex justify-between items-end">
+                    <span class="text-xs font-bold">${card.cardholder}</span>
+                    <span class="text-xs font-mono">${card.expiry}</span>
+                  </div>
+                </div>
+              ` : `<p class="text-xs text-slate-400">No card</p>`}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderTransferView() {
+      const db = getDB();
+      const wallets = db.wallets.filter(w => w.userId === state.currentUser.id);
+      setTimeout(() => {
+        const form = document.getElementById('transfer-sim-form');
+        if (form) form.onsubmit = (e) => {
+          e.preventDefault();
+          triggerPinVerification(() => showToast('Transfer Sent', 'Processed.'));
+        };
+      }, 50);
+      return `
+        <div class="max-w-3xl mx-auto space-y-6">
+          <h1 class="text-2xl font-black">Foreign Transfer Simulator</h1>
+          <form id="transfer-sim-form" class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6 shadow-sm space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1">From Wallet</label>
+              <select class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 text-sm">
+                ${wallets.map(w => `<option>${w.currency} (Bal: ${formatBalance(w.currency, w.balance)})</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1">Amount</label>
+              <input type="number" required placeholder="1000" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1">Receiver Name</label>
+              <input type="text" required placeholder="John Miller" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 text-sm">
+            </div>
+            <button type="submit" class="w-full bg-brand-500 hover:bg-brand-600 py-3.5 rounded-xl text-slate-950 font-black text-sm">Authorize with PIN</button>
+          </form>
+        </div>
+      `;
+    }
+
+    function renderAddFundsView() {
+      setTimeout(() => {
+        const form = document.getElementById('funding-sim-form');
+        if (form) form.onsubmit = (e) => { e.preventDefault(); showToast('Deposit Processed', 'Funds added.'); };
+      }, 50);
+      return `
+        <div class="max-w-2xl mx-auto space-y-6">
+          <h1 class="text-2xl font-black">Load Funds</h1>
+          <form id="funding-sim-form" class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6 shadow-sm space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1">Amount</label>
+              <input type="number" required placeholder="5000" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 text-sm font-bold">
+            </div>
+            <button type="submit" class="w-full bg-brand-500 hover:bg-brand-600 py-3.5 rounded-xl text-slate-950 font-black text-sm">Fund Account</button>
+          </form>
+        </div>
+      `;
+    }
+
+    function renderWalletsView() {
+      const db = getDB();
+      const wallets = db.wallets.filter(w => w.userId === state.currentUser.id);
+      return `
+        <div class="space-y-6">
+          <h1 class="text-2xl font-black">Wallets</h1>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            ${wallets.map(w => `
+              <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6">
+                <span class="text-xs font-black px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800">${w.currency}</span>
+                <p class="text-3xl font-black mt-4">${formatBalance(w.currency, w.balance)}</p>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderTransactionsView() {
+      return `
+        <div class="space-y-6">
+          <h1 class="text-2xl font-black">Transaction Ledger</h1>
+          <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-12 text-center">
+            <p class="text-xs text-slate-400">No transactions to display.</p>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderAnalyticsView() {
+      return `
+        <div class="space-y-6">
+          <h1 class="text-2xl font-black">Analytics Insights</h1>
+          <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-12 text-center">
+            <p class="text-xs text-slate-400">Analytics dashboard.</p>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderSettingsView() {
+      return `
+        <div class="max-w-3xl mx-auto space-y-6">
+          <h1 class="text-2xl font-black">Account Settings</h1>
+          <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6">
+            <p class="text-xs text-slate-400">Settings panel.</p>
+          </div>
+        </div>
+      `;
+    }
+
+    function initializeCharts() {}
+
+    function toggle2FASystem() {}
+    function togglePasswordVisibility() {}
+
+    // URL change handlers
+    window.addEventListener('hashchange', () => {
+      const linkId = parseInviteFromUrl();
+      if (linkId) { applyInviteLink(linkId); renderApp(); }
+    });
+    window.addEventListener('popstate', () => {
+      const linkId = parseInviteFromUrl();
+      if (linkId) { applyInviteLink(linkId); renderApp(); }
+    });
+
+    window.onload = function() {
+      const linkId = parseInviteFromUrl();
+      if (linkId) applyInviteLink(linkId);
+      renderApp();
+      setTimeout(() => {
+        const loader = document.getElementById('app-loader');
+        if (loader) loader.classList.add('hidden-loader');
+      }, 1400);
+    };
+  </script>
+</body>
+</html>
