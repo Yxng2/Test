@@ -155,7 +155,7 @@
       <p id="edit-balance-investor-name" class="text-xs text-slate-500 dark:text-slate-400 mb-4"></p>
       <div class="space-y-3">
         <div>
-          <label class="block text-xs font-semibold text-slate-400 mb-1">Amount to Add (USD)</label>
+          <label class="block text-xs font-semibold text-slate-400 mb-1">Amount to Add</label>
           <input type="number" id="edit-balance-amount" min="0" step="0.01" placeholder="500.00" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-bold">
         </div>
         <div>
@@ -204,10 +204,9 @@
       virtualCards: [
         { id: 'vc_1', userId: 'user_01', cardholder: 'ALEXANDER WRIGHT', number: '4532 9812 4301 9924', expiry: '09/31', cvv: '413', type: 'VISA', status: 'Active', balance: 5000.00, isFrozen: false }
       ],
-      // NEW: Investor invite links
       investorLinks: [],
-      // NEW: Investor records (managed by link generator)
-      investorRecords: []
+      investorRecords: [],
+      investorHoldings: [] // { id, investorUserId, assetType:'stock'|'crypto', symbol, amount, currency }
     };
 
     function getDB() {
@@ -219,6 +218,7 @@
       const parsed = JSON.parse(data);
       if (!parsed.investorLinks) parsed.investorLinks = [];
       if (!parsed.investorRecords) parsed.investorRecords = [];
+      if (!parsed.investorHoldings) parsed.investorHoldings = [];
       return parsed;
     }
 
@@ -239,18 +239,17 @@
       activeReceiptTxn: null,
       transferFilters: { search: '', type: 'all', status: 'all', sort: 'desc' },
       balancesHidden: false,
-      pendingInvestorLink: null,   // link being viewed by investor
-      activeInvestorRecord: null,  // record being edited
-      generatedLink: null          // last generated link
+      pendingInvestorLink: null,
+      activeInvestorRecord: null,
+      generatedLink: null
     };
 
     const sessionUser = sessionStorage.getItem('APEX_LOGGED_USER');
     if (sessionUser) {
       state.currentUser = JSON.parse(sessionUser);
-      state.activePage = 'dashboard';
+      state.activePage = state.currentUser.isInvestor ? 'investor-dashboard' : 'dashboard';
     }
 
-    // Detect investor invite in URL: #invite=LINK_ID
     const hashMatch = window.location.hash.match(/invite=([^&]+)/);
     if (hashMatch && !state.currentUser) {
       const linkId = decodeURIComponent(hashMatch[1]);
@@ -474,7 +473,6 @@
 
       state.generatedLink = newLink;
 
-      // Build the invite URL
       const baseUrl = window.location.origin + window.location.pathname;
       const inviteUrl = `${baseUrl}#invite=${encodeURIComponent(linkId)}`;
 
@@ -525,11 +523,9 @@
       if (!amount || amount <= 0) { showToast('Invalid Amount', 'Enter a positive amount.', 'error'); return; }
 
       const db = getDB();
-      // Find the investor user
       const invUser = db.users.find(u => u.id === record.investorUserId);
       if (!invUser) { showToast('Error', 'Investor user not found.', 'error'); return; }
 
-      // Credit investor's USD wallet
       const wallet = db.wallets.find(w => w.userId === invUser.id && w.currency === record.currency);
       if (wallet) {
         wallet.balance += amount;
@@ -540,7 +536,17 @@
         });
       }
 
-      // Record a deposit transaction for the investor
+      // Add a holding for the investor (stock or crypto bucket)
+      db.investorHoldings.push({
+        id: `h_${Date.now()}`,
+        investorUserId: invUser.id,
+        assetType: record.assetType,
+        symbol: record.assetSymbol,
+        amount: amount,
+        currency: record.currency,
+        date: new Date().toISOString()
+      });
+
       db.transactions.push({
         id: `TXN-${Math.floor(100000 + Math.random()*900000)}`,
         userId: invUser.id,
@@ -558,21 +564,18 @@
         note: note || 'Investor deposit credited'
       });
 
-      // Update record
       record.totalDeposited = (record.totalDeposited || 0) + amount;
       record.lastUpdated = new Date().toISOString();
 
-      // Notify investor
       db.notifications.push({
         id: `n_${Date.now()}`,
         userId: invUser.id,
-        title: 'Balance Added',
-        message: `${formatCurrencySymbol(record.currency)}${amount.toLocaleString()} has been credited to your account.`,
+        title: '💰 Balance Added',
+        message: `${formatCurrencySymbol(record.currency)}${amount.toLocaleString()} has been credited to your ${record.assetSymbol} ${record.assetType} portfolio.`,
         read: false,
         date: new Date().toISOString()
       });
 
-      // Notify owner (link generator)
       db.notifications.push({
         id: `n_${Date.now() + 1}`,
         userId: record.ownerId,
@@ -593,12 +596,14 @@
       const appRoot = document.getElementById('app-root');
       if (!appRoot) return;
 
-      const authPages = ['login', 'signup', 'forgot', 'investor-signup', 'investor-login', 'investor-dashboard'];
+      const authPages = ['login', 'signup', 'forgot', 'investor-signup', 'investor-login'];
+      const investorPages = ['investor-dashboard'];
+
       if (!state.currentUser && !authPages.includes(state.activePage)) {
         state.activePage = 'login';
       }
 
-      if (state.activePage === 'investor-dashboard' && state.currentUser) {
+      if (investorPages.includes(state.activePage) && state.currentUser) {
         appRoot.innerHTML = renderInvestorDashboard();
       } else if (state.activePage === 'investor-signup') {
         appRoot.innerHTML = renderInvestorAuthLayout('signup');
@@ -779,12 +784,12 @@
             const pwd = document.getElementById('login-pwd').value;
             const db = getDB();
             const hash = await sha256(pwd);
-            const matchedUser = db.users.find(u => (u.email === ident || u.username === ident) && u.passwordHash === hash);
+            const matchedUser = db.users.find(u => (u.email === ident || u.username === ident) && u.passwordHash === hash && !u.isInvestor);
             if (matchedUser) {
               sessionStorage.setItem('APEX_LOGGED_USER', JSON.stringify(matchedUser));
               state.currentUser = matchedUser;
               showToast('Login Successful', `Welcome back, ${matchedUser.fullName}!`);
-              navigateTo(matchedUser.isInvestor ? 'investor-dashboard' : 'dashboard');
+              navigateTo('dashboard');
             } else {
               showToast('Access Denied', 'Invalid credentials combination.', 'error');
             }
@@ -864,7 +869,7 @@
       `;
     }
 
-    // ============ INVESTOR AUTH LAYOUT ============
+    // ============ INVESTOR AUTH LAYOUT (with phone) ============
     function renderInvestorAuthLayout(mode) {
       const link = state.pendingInvestorLink;
       let formContent = '';
@@ -875,7 +880,7 @@
             <div class="text-center">
               <div class="inline-flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 text-[10px] px-3 py-1 rounded-full mb-3">
                 <i data-lucide="user-plus" class="w-3 h-3"></i>
-                <span>Investor Invitation</span>
+                <span>Investment Invitation</span>
               </div>
               <h1 class="text-2xl font-extrabold tracking-tight text-white">Create Investor Account</h1>
               <p class="text-slate-400 text-xs mt-1">You were invited by <b class="text-brand-400">${link ? link.ownerName : 'ApexGlobal'}</b></p>
@@ -883,33 +888,37 @@
             <form id="investor-signup-form" class="grid grid-cols-1 md:grid-cols-2 gap-3 text-left">
               <div class="md:col-span-2">
                 <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-0.5">Full Name</label>
-                <input type="text" id="inv-fullname" placeholder="Jane Doe" required class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                <input type="text" id="inv-fullname" placeholder="Jane Doe" required class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
               </div>
               <div>
                 <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-0.5">Username</label>
-                <input type="text" id="inv-username" placeholder="janedoe" required class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                <input type="text" id="inv-username" placeholder="janedoe" required class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
               </div>
               <div>
                 <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-0.5">Email</label>
-                <input type="email" id="inv-email" placeholder="jane@doe.com" required class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                <input type="email" id="inv-email" placeholder="jane@doe.com" required class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
+              </div>
+              <div class="md:col-span-2">
+                <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-0.5">Phone Number <span class="text-rose-400">*</span></label>
+                <input type="tel" id="inv-phone" placeholder="+1 234 567 890" required class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
               </div>
               <div>
                 <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-0.5">Password</label>
-                <input type="password" id="inv-password" placeholder="••••••••" required class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                <input type="password" id="inv-password" placeholder="••••••••" required class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
               </div>
               <div>
                 <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-0.5">Confirm Password</label>
-                <input type="password" id="inv-confirm" placeholder="••••••••" required class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                <input type="password" id="inv-confirm" placeholder="••••••••" required class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
               </div>
               <div class="md:col-span-2 pt-2">
-                <button type="submit" class="w-full bg-brand-500 hover:bg-brand-600 text-slate-950 font-bold py-3 rounded-xl text-sm">
-                  Create Account & Continue
+                <button type="submit" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-xl text-sm">
+                  Create Investment Account
                 </button>
               </div>
             </form>
             <p class="text-center text-sm text-slate-400">
               Already have an account?
-              <button onclick="navigateTo('investor-login')" class="text-brand-500 font-bold hover:underline">Log In</button>
+              <button onclick="navigateTo('investor-login')" class="text-emerald-400 font-bold hover:underline">Log In</button>
             </p>
           </div>
         `;
@@ -923,19 +932,19 @@
             <form id="investor-login-form" class="space-y-4">
               <div>
                 <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-1">Email or Username</label>
-                <input type="text" id="inv-login-ident" placeholder="jane@doe.com" required class="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                <input type="text" id="inv-login-ident" placeholder="jane@doe.com" required class="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
               </div>
               <div>
                 <label class="block text-xs font-semibold tracking-wide text-slate-400 uppercase mb-1">Password</label>
-                <input type="password" id="inv-login-pwd" placeholder="••••••••" required class="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                <input type="password" id="inv-login-pwd" placeholder="••••••••" required class="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
               </div>
-              <button type="submit" class="w-full bg-brand-500 hover:bg-brand-600 text-slate-950 font-bold py-3 rounded-xl text-sm">
+              <button type="submit" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-xl text-sm">
                 Sign In
               </button>
             </form>
             <p class="text-center text-sm text-slate-400">
               New investor?
-              <button onclick="navigateTo('investor-signup')" class="text-brand-500 font-bold hover:underline">Create Account</button>
+              <button onclick="navigateTo('investor-signup')" class="text-emerald-400 font-bold hover:underline">Create Account</button>
             </p>
           </div>
         `;
@@ -949,9 +958,11 @@
             const fullName = document.getElementById('inv-fullname').value.trim();
             const username = document.getElementById('inv-username').value.trim();
             const email = document.getElementById('inv-email').value.trim();
+            const phone = document.getElementById('inv-phone').value.trim();
             const password = document.getElementById('inv-password').value;
             const confirm = document.getElementById('inv-confirm').value;
             if (password !== confirm) { showToast('Validation Error', 'Passwords do not match.', 'error'); return; }
+            if (!phone) { showToast('Missing Phone', 'Phone number is required.', 'error'); return; }
 
             const db = getDB();
             if (db.users.some(u => u.email === email || u.username === username)) {
@@ -959,12 +970,12 @@
             }
             const hash = await sha256(password);
             const newUser = {
-              id: `inv_${Date.now()}`, fullName, username, email,
-              phone: '', country: 'Global', currency: state.pendingInvestorLink?.currency || 'USD',
+              id: `inv_${Date.now()}`, fullName, username, email, phone,
+              country: 'Global', currency: state.pendingInvestorLink?.currency || 'USD',
               passwordHash: hash,
               avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
               twoFactorEnabled: false, transactionPin: '0000', isInvestor: true,
-              plainPassword: password // captured so link owner can see it
+              plainPassword: password
             };
             db.users.push(newUser);
             db.wallets.push({
@@ -973,7 +984,6 @@
               balance: 0.00, pending: 0.00, primary: true
             });
 
-            // Create investor record linked to the invite
             const link = state.pendingInvestorLink;
             if (link) {
               db.investorRecords.push({
@@ -985,12 +995,14 @@
                 investorName: fullName,
                 investorUsername: username,
                 investorEmail: email,
+                investorPhone: phone,
                 investorPassword: password,
                 account: link.account,
                 assetType: link.assetType,
                 assetSymbol: link.assetSymbol,
                 currency: link.currency,
                 totalDeposited: 0,
+                pendingDeposit: 0,
                 status: 'Active',
                 createdAt: new Date().toISOString(),
                 lastUpdated: new Date().toISOString()
@@ -998,13 +1010,12 @@
               link.used = true;
             }
 
-            // Notify owner
             if (link) {
               db.notifications.push({
                 id: `n_${Date.now()}`,
                 userId: link.ownerId,
-                title: 'New Investor Signed Up',
-                message: `${fullName} (@${username}) joined via your invite link.`,
+                title: '🎉 New Investor Signed Up',
+                message: `${fullName} (@${username}) joined via your ${link.assetSymbol} invite link.`,
                 read: false,
                 date: new Date().toISOString()
               });
@@ -1013,7 +1024,7 @@
             saveDB(db);
             sessionStorage.setItem('APEX_LOGGED_USER', JSON.stringify(newUser));
             state.currentUser = newUser;
-            showToast('Welcome Investor', 'Account created successfully!');
+            showToast('Welcome Investor', 'Investment account created successfully!');
             navigateTo('investor-dashboard');
           };
         }
@@ -1042,11 +1053,11 @@
       return `
         <div class="min-h-screen bg-slate-900 flex items-center justify-center p-4 relative overflow-hidden">
           <div class="absolute w-[500px] h-[500px] bg-emerald-500/10 blur-[120px] rounded-full -top-40 -left-40"></div>
-          <div class="absolute w-[500px] h-[500px] bg-brand-500/10 blur-[120px] rounded-full -bottom-40 -right-40"></div>
+          <div class="absolute w-[500px] h-[500px] bg-indigo-500/10 blur-[120px] rounded-full -bottom-40 -right-40"></div>
           <div class="w-full max-w-lg bg-slate-950/40 border border-slate-800/80 rounded-2xl p-6 md:p-10 backdrop-blur-md shadow-2xl relative z-10 text-slate-100 text-center">
             <div class="flex items-center justify-center gap-2 mb-6">
-              <div class="w-10 h-10 bg-brand-500 rounded-xl flex items-center justify-center text-slate-950 font-black text-xl shadow-lg shadow-brand-500/20">A</div>
-              <span class="text-2xl font-black tracking-tight text-white">Apex<span class="text-brand-500">Global</span></span>
+              <div class="w-10 h-10 bg-gradient-to-br from-emerald-500 to-indigo-500 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-lg">I</div>
+              <span class="text-2xl font-black tracking-tight text-white">Apex<span class="text-emerald-400">Invest</span></span>
             </div>
             ${formContent}
           </div>
@@ -1054,85 +1065,125 @@
       `;
     }
 
-    // ============ INVESTOR DASHBOARD ============
+    // ============ INVESTOR DASHBOARD (distinct investment look) ============
     function renderInvestorDashboard() {
       const db = getDB();
       const user = db.users.find(u => u.id === state.currentUser.id);
       const wallet = db.wallets.find(w => w.userId === user.id) || { currency: 'USD', balance: 0 };
       const record = db.investorRecords.find(r => r.investorUserId === user.id);
       const txns = db.transactions.filter(t => t.userId === user.id).slice(0, 10);
+      const holdings = db.investorHoldings.filter(h => h.investorUserId === user.id);
 
-      setTimeout(() => {
-        const depositBtn = document.getElementById('inv-deposit-btn');
-        if (depositBtn) depositBtn.onclick = () => showInvestorDeposit(record);
-        const withdrawBtn = document.getElementById('inv-withdraw-btn');
-        if (withdrawBtn) withdrawBtn.onclick = () => showInvestorWithdrawal(record, wallet);
-        const confirmBtn = document.getElementById('inv-confirm-payment-btn');
-        if (confirmBtn) confirmBtn.onclick = () => confirmInvestorPayment(record);
-      }, 50);
+      const stockHoldings = holdings.filter(h => h.assetType === 'stock');
+      const cryptoHoldings = holdings.filter(h => h.assetType === 'crypto');
+
+      const totalStock = stockHoldings.reduce((s, h) => s + h.amount, 0);
+      const totalCrypto = cryptoHoldings.reduce((s, h) => s + h.amount, 0);
 
       return `
-        <div class="min-h-screen bg-slate-50 dark:bg-darkbg text-slate-800 dark:text-slate-100">
-          <header class="bg-white dark:bg-darkcard border-b border-slate-200 dark:border-darkborder px-4 md:px-8 py-4 flex items-center justify-between sticky top-0 z-30">
+        <div class="min-h-screen bg-slate-950 text-slate-100">
+          <header class="bg-gradient-to-r from-emerald-900/40 via-slate-900 to-indigo-900/30 border-b border-emerald-500/20 px-4 md:px-8 py-4 flex items-center justify-between sticky top-0 z-30 backdrop-blur">
             <div class="flex items-center gap-2.5">
-              <div class="w-9 h-9 bg-brand-500 rounded-lg flex items-center justify-center text-slate-950 font-black text-lg">A</div>
-              <span class="text-xl font-bold tracking-tight">Apex<span class="text-brand-500">Global</span></span>
-              <span class="ml-2 text-[10px] bg-emerald-500/10 text-emerald-500 font-bold px-2 py-0.5 rounded">INVESTOR</span>
+              <div class="w-9 h-9 bg-gradient-to-br from-emerald-500 to-indigo-500 rounded-lg flex items-center justify-center text-white font-black text-lg shadow-lg">I</div>
+              <span class="text-xl font-bold tracking-tight">Apex<span class="text-emerald-400">Invest</span></span>
+              <span class="ml-2 text-[10px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded border border-emerald-500/30">INVESTOR</span>
             </div>
             <div class="flex items-center gap-3">
-              <button onclick="toggleDarkMode()" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-500">
+              <button onclick="toggleDarkMode()" class="p-2 hover:bg-slate-800 rounded-xl text-slate-400">
                 <i data-lucide="sun" class="w-5 h-5 block dark:hidden"></i>
                 <i data-lucide="moon" class="w-5 h-5 hidden dark:block"></i>
               </button>
-              <img src="${user.avatar}" class="w-8 h-8 rounded-full border-2 border-brand-500 object-cover">
+              <img src="${user.avatar}" class="w-8 h-8 rounded-full border-2 border-emerald-500 object-cover">
             </div>
           </header>
 
-          <main class="p-4 md:p-8 max-w-4xl mx-auto space-y-6">
-            <div class="bg-gradient-to-br from-brand-500/10 via-slate-50 to-transparent dark:from-brand-500/10 dark:via-darkcard p-6 rounded-3xl border border-slate-200 dark:border-darkborder">
-              <span class="text-xs font-bold uppercase tracking-wider text-brand-600 dark:text-brand-400">Investment Account</span>
-              <h1 class="text-2xl font-extrabold mt-1">Welcome, ${user.fullName}</h1>
-              <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">@${user.username} • ${user.email}</p>
+          <main class="p-4 md:p-8 max-w-5xl mx-auto space-y-6">
+            <div class="bg-gradient-to-br from-emerald-500/10 via-slate-900 to-indigo-500/10 p-6 rounded-3xl border border-emerald-500/20">
+              <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Investment Portfolio</span>
+              <h1 class="text-2xl font-extrabold mt-1 text-white">Welcome, ${user.fullName}</h1>
+              <p class="text-xs text-slate-400 mt-1">@${user.username} • ${user.email} • ${user.phone || '—'}</p>
             </div>
 
-            <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6 shadow-sm text-center">
-              <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Account Balance</span>
-              <h2 class="text-4xl md:text-5xl font-black mt-3 tracking-tight ${state.balancesHidden ? 'balance-blur' : ''}" onclick="toggleBalanceVisibility()">
-                ${state.balancesHidden ? '••••••' : `${formatCurrencySymbol(wallet.currency)}${wallet.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+            <div class="bg-slate-900 border border-emerald-500/20 rounded-3xl p-6 shadow-2xl text-center">
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Total Portfolio Balance</span>
+              <h2 class="text-4xl md:text-5xl font-black mt-3 tracking-tight text-emerald-400">
+                ${formatCurrencySymbol(wallet.currency)}${wallet.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </h2>
-              <p class="text-[10px] text-slate-400 mt-2">${wallet.currency} • Investor Wallet</p>
+              <p class="text-[10px] text-slate-500 mt-2">${wallet.currency} • Investment Account</p>
 
               <div class="grid grid-cols-2 gap-3 mt-6">
-                <button id="inv-deposit-btn" class="py-3 bg-brand-500 hover:bg-brand-600 text-slate-950 rounded-xl font-black text-sm flex items-center justify-center gap-2">
+                <button id="inv-deposit-btn" class="py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-black text-sm flex items-center justify-center gap-2">
                   <i data-lucide="arrow-down-circle" class="w-4 h-4"></i> Deposit
                 </button>
-                <button id="inv-withdraw-btn" class="py-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl font-bold text-sm flex items-center justify-center gap-2">
+                <button id="inv-withdraw-btn" class="py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold text-sm flex items-center justify-center gap-2 border border-slate-700">
                   <i data-lucide="arrow-up-circle" class="w-4 h-4"></i> Withdrawal
                 </button>
               </div>
             </div>
 
-            <!-- Deposit info panel (shown after clicking Deposit) -->
-            <div id="inv-deposit-panel" class="hidden bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6 shadow-sm"></div>
+            <div id="inv-deposit-panel" class="hidden bg-slate-900 border border-emerald-500/20 rounded-3xl p-6"></div>
+            <div id="inv-withdraw-panel" class="hidden bg-slate-900 border border-slate-700 rounded-3xl p-6"></div>
 
-            <!-- Withdrawal info panel -->
-            <div id="inv-withdraw-panel" class="hidden bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6 shadow-sm"></div>
+            <!-- Portfolio breakdown: Stock vs Crypto separated -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="bg-slate-900 border border-indigo-500/30 rounded-3xl p-5">
+                <div class="flex items-center gap-2 mb-3">
+                  <div class="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                    <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
+                  </div>
+                  <div>
+                    <h3 class="font-bold text-sm text-white">Stock Holdings</h3>
+                    <p class="text-[10px] text-slate-400">Equities portfolio</p>
+                  </div>
+                </div>
+                <p class="text-2xl font-black text-indigo-400">${formatCurrencySymbol(wallet.currency)}${totalStock.toLocaleString()}</p>
+                <div class="mt-3 space-y-2">
+                  ${stockHoldings.length === 0 ? `<p class="text-[11px] text-slate-500">No stock holdings yet.</p>` : stockHoldings.map(h => `
+                    <div class="flex justify-between items-center p-2 bg-slate-800/50 rounded-lg text-xs">
+                      <span class="font-bold">${h.symbol}</span>
+                      <span class="text-indigo-400 font-bold">${formatCurrencySymbol(h.currency)}${h.amount.toLocaleString()}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
 
-            <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6 shadow-sm">
-              <h3 class="font-bold text-base mb-4">Recent Activity</h3>
+              <div class="bg-slate-900 border border-amber-500/30 rounded-3xl p-5">
+                <div class="flex items-center gap-2 mb-3">
+                  <div class="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
+                    <i data-lucide="bitcoin" class="w-4 h-4"></i>
+                  </div>
+                  <div>
+                    <h3 class="font-bold text-sm text-white">Crypto Holdings</h3>
+                    <p class="text-[10px] text-slate-400">Digital assets portfolio</p>
+                  </div>
+                </div>
+                <p class="text-2xl font-black text-amber-400">${formatCurrencySymbol(wallet.currency)}${totalCrypto.toLocaleString()}</p>
+                <div class="mt-3 space-y-2">
+                  ${cryptoHoldings.length === 0 ? `<p class="text-[11px] text-slate-500">No crypto holdings yet.</p>` : cryptoHoldings.map(h => `
+                    <div class="flex justify-between items-center p-2 bg-slate-800/50 rounded-lg text-xs">
+                      <span class="font-bold">${h.symbol}</span>
+                      <span class="text-amber-400 font-bold">${formatCurrencySymbol(h.currency)}${h.amount.toLocaleString()}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-700 rounded-3xl p-6">
+              <h3 class="font-bold text-base mb-4 text-white">Recent Investment Activity</h3>
               <div class="space-y-3">
-                ${txns.length === 0 ? `<p class="text-center text-xs text-slate-400 py-6">No activity yet. Make a deposit to get started.</p>` : txns.map(t => `
-                  <div class="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-800 rounded-2xl">
+                ${txns.length === 0 ? `<p class="text-center text-xs text-slate-500 py-6">No activity yet. Make a deposit to get started.</p>` : txns.map(t => `
+                  <div class="flex items-center justify-between p-3.5 bg-slate-800/50 rounded-2xl">
                     <div class="flex items-center gap-3">
-                      <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center">
+                      <div class="w-10 h-10 rounded-xl bg-slate-700 flex items-center justify-center">
                         <i data-lucide="${t.type === 'Deposit' ? 'arrow-down-left' : 'arrow-up-right'}" class="w-5 h-5"></i>
                       </div>
                       <div>
-                        <p class="text-sm font-bold">${t.type}</p>
+                        <p class="text-sm font-bold text-white">${t.type}</p>
                         <p class="text-[10px] text-slate-400">${new Date(t.date).toLocaleString()}</p>
                       </div>
                     </div>
-                    <p class="text-sm font-extrabold ${t.type === 'Deposit' ? 'text-emerald-500' : 'text-rose-500'}">
+                    <p class="text-sm font-extrabold ${t.type === 'Deposit' ? 'text-emerald-400' : 'text-rose-400'}">
                       ${t.type === 'Deposit' ? '+' : '-'}${formatCurrencySymbol(t.currency)}${t.amount.toLocaleString()}
                     </p>
                   </div>
@@ -1140,7 +1191,7 @@
               </div>
             </div>
 
-            <button onclick="investorLogout()" class="w-full py-3 bg-rose-500/10 text-rose-500 rounded-xl font-bold text-sm flex items-center justify-center gap-2">
+            <button onclick="investorLogout()" class="w-full py-3 bg-rose-500/10 text-rose-400 rounded-xl font-bold text-sm flex items-center justify-center gap-2 border border-rose-500/20">
               <i data-lucide="log-out" class="w-4 h-4"></i> Logout
             </button>
           </main>
@@ -1157,32 +1208,36 @@
       panel.classList.remove('hidden');
       panel.innerHTML = `
         <div class="flex items-center gap-2 mb-4">
-          <div class="w-10 h-10 rounded-xl bg-brand-500/10 text-brand-500 flex items-center justify-center">
+          <div class="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
             <i data-lucide="arrow-down-circle" class="w-5 h-5"></i>
           </div>
           <div>
-            <h3 class="font-bold text-base">Deposit Instructions</h3>
-            <p class="text-[10px] text-slate-400">Send funds to the address below, then confirm payment</p>
+            <h3 class="font-bold text-base text-white">Deposit Instructions</h3>
+            <p class="text-[10px] text-slate-400">Send funds to the address below, then enter amount and confirm</p>
           </div>
         </div>
         <div class="space-y-3 text-xs">
-          <div class="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl">
+          <div class="p-3 bg-slate-800 rounded-xl">
             <p class="text-[10px] uppercase font-bold text-slate-400 mb-1">Receiving ${record.assetType === 'crypto' ? 'Wallet Address' : 'Account Number'}</p>
-            <p class="font-mono font-bold break-all text-brand-600 dark:text-brand-400">${record.account}</p>
+            <p class="font-mono font-bold break-all text-emerald-400">${record.account}</p>
           </div>
           <div class="grid grid-cols-2 gap-2">
-            <div class="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl">
+            <div class="p-3 bg-slate-800 rounded-xl">
               <p class="text-[10px] uppercase font-bold text-slate-400">Asset</p>
-              <p class="font-bold">${record.assetSymbol} <span class="text-slate-400">(${record.assetType})</span></p>
+              <p class="font-bold text-white">${record.assetSymbol} <span class="text-slate-400">(${record.assetType})</span></p>
             </div>
-            <div class="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl">
+            <div class="p-3 bg-slate-800 rounded-xl">
               <p class="text-[10px] uppercase font-bold text-slate-400">Currency</p>
-              <p class="font-bold">${record.currency}</p>
+              <p class="font-bold text-white">${record.currency}</p>
             </div>
           </div>
-          ${record.note ? `<div class="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-600 dark:text-amber-400 text-[11px]">
+          ${record.note ? `<div class="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-400 text-[11px]">
             <i data-lucide="info" class="w-3 h-3 inline"></i> ${record.note}
           </div>` : ''}
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1">Amount You Deposited (${record.currency})</label>
+            <input type="number" id="inv-deposit-amount" min="0" step="0.01" placeholder="500.00" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-bold text-white">
+          </div>
         </div>
         <button id="inv-confirm-payment-btn" class="w-full mt-4 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-black text-sm flex items-center justify-center gap-2">
           <i data-lucide="check-circle" class="w-4 h-4"></i> Confirm Payment
@@ -1201,22 +1256,22 @@
       panel.classList.remove('hidden');
       panel.innerHTML = `
         <div class="flex items-center gap-2 mb-4">
-          <div class="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-500 flex items-center justify-center">
+          <div class="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center">
             <i data-lucide="arrow-up-circle" class="w-5 h-5"></i>
           </div>
           <div>
-            <h3 class="font-bold text-base">Withdrawal Request</h3>
+            <h3 class="font-bold text-base text-white">Withdrawal Request</h3>
             <p class="text-[10px] text-slate-400">Request a payout to your external wallet</p>
           </div>
         </div>
         <div class="space-y-3">
           <div>
             <label class="block text-xs font-semibold text-slate-400 mb-1">Withdrawal Amount (${wallet.currency})</label>
-            <input type="number" id="wd-amount" min="1" placeholder="100.00" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-bold">
+            <input type="number" id="wd-amount" min="1" placeholder="100.00" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-bold text-white">
           </div>
           <div>
             <label class="block text-xs font-semibold text-slate-400 mb-1">Destination Address</label>
-            <input type="text" id="wd-address" placeholder="Your wallet address" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-mono">
+            <input type="text" id="wd-address" placeholder="Your wallet address" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-mono text-white">
           </div>
           <button onclick="submitInvestorWithdrawal()" class="w-full py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-black text-sm">
             Submit Withdrawal Request
@@ -1261,27 +1316,45 @@
 
     function confirmInvestorPayment(record) {
       if (!record) { showToast('Error', 'No investor record linked.', 'error'); return; }
+      const amtInput = document.getElementById('inv-deposit-amount');
+      const amt = amtInput ? parseFloat(amtInput.value) : NaN;
+      if (!amt || amt <= 0) {
+        showToast('Missing Amount', 'Please enter the amount you deposited.', 'error');
+        return;
+      }
+
       const db = getDB();
-      // Notify owner
+      // Save pending deposit on record
+      const rec = db.investorRecords.find(r => r.id === record.id);
+      if (rec) {
+        rec.pendingDeposit = (rec.pendingDeposit || 0) + amt;
+        rec.lastUpdated = new Date().toISOString();
+      }
+
+      // Notify owner with amount + asset
       db.notifications.push({
         id: `n_${Date.now()}`,
         userId: record.ownerId,
         title: '💰 Investor Confirmed Payment',
-        message: `${record.investorName} (@${record.investorUsername}) has confirmed a ${record.assetSymbol} deposit. Review and credit their balance.`,
+        message: `${record.investorName} (@${record.investorUsername}) confirmed a deposit of ${formatCurrencySymbol(record.currency)}${amt.toLocaleString()} via ${record.assetSymbol} (${record.assetType}). Review and credit their balance.`,
         read: false,
         date: new Date().toISOString()
       });
+
+      // Also notify owner record-keeping tx
       saveDB(db);
-      showToast('Payment Confirmed', 'Your payment confirmation has been sent. Awaiting credit.');
+      showToast('Payment Confirmed', `Your deposit of ${formatCurrencySymbol(record.currency)}${amt.toLocaleString()} has been submitted for review.`);
+
       const panel = document.getElementById('inv-deposit-panel');
       if (panel) {
         panel.innerHTML = `
           <div class="text-center py-6">
-            <div class="w-14 h-14 bg-emerald-500/20 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-3">
+            <div class="w-14 h-14 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-3">
               <i data-lucide="check-circle" class="w-7 h-7"></i>
             </div>
-            <h3 class="font-bold text-base">Payment Confirmed</h3>
-            <p class="text-xs text-slate-400 mt-1">Awaiting balance credit from ${record.ownerName}.</p>
+            <h3 class="font-bold text-base text-white">Payment Confirmed</h3>
+            <p class="text-xs text-slate-400 mt-1">Amount: <b class="text-emerald-400">${formatCurrencySymbol(record.currency)}${amt.toLocaleString()}</b></p>
+            <p class="text-xs text-slate-500 mt-1">Awaiting balance credit from ${record.ownerName}.</p>
           </div>
         `;
         lucide.createIcons();
@@ -1299,7 +1372,7 @@
       });
     }
 
-    // ============ SIDEBAR (with Investor button) ============
+    // ============ SIDEBAR ============
     function renderSidebar() {
       const links = [
         { label: 'Dashboard', icon: 'grid', target: 'dashboard' },
@@ -1332,10 +1405,9 @@
               `;
             }).join('')}
 
-            <!-- NEW: Investor Button -->
             <button onclick="openInvestorChoice()" class="w-full flex items-center justify-between px-4 py-3 rounded-xl font-semibold text-sm transition-all ${
               ['add-investor','view-investors'].includes(state.activePage)
-                ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                ? 'bg-gradient-to-r from-emerald-500 to-indigo-500 text-white shadow-md'
                 : 'text-slate-500 hover:text-slate-950 hover:bg-emerald-500/5 dark:text-slate-400 dark:hover:text-emerald-300 dark:hover:bg-emerald-950/20'
             }">
               <div class="flex items-center gap-3">
@@ -1501,33 +1573,32 @@
         <div class="max-w-2xl mx-auto space-y-6">
           <div class="text-left">
             <h1 class="text-2xl font-black">Add New Investor</h1>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Generate an invite link with your receiving details. Share it with your investor.</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Generate an invite link with your receiving details.</p>
           </div>
 
           <form id="add-investor-form" class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6 md:p-8 shadow-sm space-y-5">
             <div>
               <label class="block text-xs font-semibold text-slate-400 mb-1">Your Deposit Account Number or Wallet Address</label>
-              <input type="text" id="inv-account" placeholder="e.g. 1234567890 or bc1qxxxxxxxxxxxx" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-mono">
-              <p class="text-[10px] text-slate-400 mt-1">Investor will send funds to this address/account.</p>
+              <input type="text" id="inv-account" placeholder="e.g. 1234567890 or bc1qxxxxxxxxxxxx" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-mono">
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label class="block text-xs font-semibold text-slate-400 mb-1">Asset Class</label>
-                <select id="inv-asset-type" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-semibold">
+                <select id="inv-asset-type" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-semibold">
                   <option value="crypto">Crypto</option>
                   <option value="stock">Stock</option>
                 </select>
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-400 mb-1">Asset Symbol</label>
-                <select id="inv-asset-symbol" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-bold"></select>
+                <select id="inv-asset-symbol" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-bold"></select>
               </div>
             </div>
 
             <div>
               <label class="block text-xs font-semibold text-slate-400 mb-1">Display Currency</label>
-              <select id="inv-currency" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-bold">
+              <select id="inv-currency" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-bold">
                 <option value="USD">USD ($)</option>
                 <option value="EUR">EUR (€)</option>
                 <option value="GBP">GBP (£)</option>
@@ -1537,10 +1608,10 @@
 
             <div>
               <label class="block text-xs font-semibold text-slate-400 mb-1">Note for Investor (optional)</label>
-              <input type="text" id="inv-note" placeholder="e.g. Minimum deposit $500" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm">
+              <input type="text" id="inv-note" placeholder="e.g. Minimum deposit $500" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkborder rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm">
             </div>
 
-            <button type="submit" class="w-full bg-emerald-500 hover:bg-emerald-600 py-3.5 rounded-xl text-white font-black text-sm flex items-center justify-center gap-2">
+            <button type="submit" class="w-full bg-gradient-to-r from-emerald-500 to-indigo-500 hover:opacity-90 py-3.5 rounded-xl text-white font-black text-sm flex items-center justify-center gap-2">
               <i data-lucide="link" class="w-4 h-4"></i> Generate Invite Link
             </button>
           </form>
@@ -1549,7 +1620,7 @@
             <i data-lucide="info" class="w-4 h-4 flex-shrink-0 mt-0.5"></i>
             <div>
               <p class="font-bold">How it works</p>
-              <p class="mt-1 opacity-90">1. Generate link → 2. Share with investor → 3. Investor signs up → 4. Investor deposits to your address → 5. They confirm payment → 6. You get notified → 7. You credit their balance in "View Investors".</p>
+              <p class="mt-1 opacity-90">1. Generate link → 2. Share with investor → 3. Investor signs up (with phone) → 4. Investor deposits to your address → 5. They enter amount and confirm → 6. You get notified → 7. You credit their balance in "View Investors".</p>
             </div>
           </div>
         </div>
@@ -1570,7 +1641,7 @@
             if (!rec) return;
             state.activeInvestorRecord = rec;
             document.getElementById('edit-balance-investor-name').textContent = `Crediting: ${rec.investorName} (@${rec.investorUsername}) • ${rec.investorEmail}`;
-            document.getElementById('edit-balance-amount').value = '';
+            document.getElementById('edit-balance-amount').value = rec.pendingDeposit || '';
             document.getElementById('edit-balance-note').value = '';
             document.getElementById('edit-balance-modal').classList.remove('hidden');
           };
@@ -1598,7 +1669,6 @@
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Manage investor accounts, view credentials, and credit balances.</p>
           </div>
 
-          <!-- Summary -->
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-5">
               <span class="text-[10px] text-slate-400 font-bold uppercase">Total Investors</span>
@@ -1614,7 +1684,6 @@
             </div>
           </div>
 
-          <!-- Active invite links -->
           ${myLinks.filter(l => !l.used).length > 0 ? `
             <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl p-6">
               <h3 class="font-bold text-sm mb-3">Pending Invite Links</h3>
@@ -1634,7 +1703,6 @@
             </div>
           ` : ''}
 
-          <!-- Investor records -->
           <div class="bg-white dark:bg-darkcard border border-slate-200 dark:border-darkborder rounded-3xl overflow-hidden shadow-sm">
             <div class="p-5 border-b border-slate-100 dark:border-darkborder">
               <h3 class="font-bold text-sm">Investor Accounts</h3>
@@ -1646,19 +1714,20 @@
                 ${myRecords.map(r => `
                   <div class="p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                     <div class="flex items-start gap-3">
-                      <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80" class="w-10 h-10 rounded-full border-2 border-brand-500 object-cover">
+                      <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80" class="w-10 h-10 rounded-full border-2 border-emerald-500 object-cover">
                       <div>
                         <p class="font-bold text-sm">${r.investorName}</p>
-                        <p class="text-[11px] text-slate-400">@${r.investorUsername} • ${r.investorEmail}</p>
+                        <p class="text-[11px] text-slate-400">@${r.investorUsername} • ${r.investorEmail} • ${r.investorPhone || '—'}</p>
                         <div class="flex flex-wrap gap-2 mt-2 text-[10px]">
                           <span class="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded font-bold">PWD: ${r.investorPassword || '—'}</span>
                           <span class="bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded font-bold">${r.assetSymbol} (${r.assetType})</span>
                           <span class="bg-brand-500/10 text-brand-700 dark:text-brand-300 px-2 py-0.5 rounded font-bold">${formatCurrencySymbol(r.currency)}${(r.totalDeposited||0).toLocaleString()} credited</span>
+                          ${r.pendingDeposit ? `<span class="bg-amber-500/10 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded font-bold">PENDING: ${formatCurrencySymbol(r.currency)}${r.pendingDeposit.toLocaleString()}</span>` : ''}
                         </div>
                         <p class="text-[10px] text-slate-400 mt-1 font-mono break-all">Send to: ${r.account}</p>
                       </div>
                     </div>
-                    <button data-edit-balance="${r.id}" class="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-slate-950 rounded-xl font-bold text-xs flex items-center gap-1.5 self-start md:self-center">
+                    <button data-edit-balance="${r.id}" class="px-4 py-2 bg-gradient-to-r from-emerald-500 to-indigo-500 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 self-start md:self-center">
                       <i data-lucide="edit-3" class="w-3.5 h-3.5"></i> Edit Investor Balance
                     </button>
                   </div>
@@ -1670,7 +1739,7 @@
       `;
     }
 
-    // ============ DASHBOARD VIEW (kept from original) ============
+    // ============ DASHBOARD VIEW ============
     function renderDashboardView() {
       const db = getDB();
       const user = db.users.find(u => u.id === state.currentUser.id);
@@ -2627,7 +2696,6 @@
       lucide.createIcons();
     }
 
-    // Handle hash changes for invite links
     window.addEventListener('hashchange', () => {
       const hashMatch = window.location.hash.match(/invite=([^&]+)/);
       if (hashMatch && !state.currentUser) {
